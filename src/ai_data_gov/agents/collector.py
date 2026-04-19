@@ -1,10 +1,10 @@
 """
 Collector agent — reads legacy source files, DDL and existing docs.
 
-Filters source files by SweetDev naming conventions:
-  *ImportWork.java  → batch job classes
-  *Bean.java        → data model classes
-  *.xml             → mapping / config files
+Filters source files by SweetDev naming conventions + flow name:
+  *ImportWork.java       → all batch job classes
+  *Bean.java             → all data model classes
+  *<FLOW_NAME>*.xml      → only XML files matching the flow name
 
 DDL and docs directories are read entirely (no filter).
 Paths are configured in config.properties.
@@ -112,10 +112,19 @@ def _read_directory(
 #  Public API                                                                   #
 # --------------------------------------------------------------------------- #
 
-def collect(properties_path: str = "config.properties") -> CollectorOutput:
+def collect(flow_name: str, properties_path: str = "config.properties") -> CollectorOutput:
     """
     Main entry point.
-    Reads config.properties, then collects source, DDL and doc files.
+
+    Args:
+        flow_name:        Name of the flow to process (e.g. "TIERS_LEI").
+                          Used to filter XML files: only *<flow_name>*.xml are kept.
+        properties_path:  Path to config.properties file.
+
+    Filtering rules:
+        source/ → *ImportWork.java (all), *Bean.java (all), *<flow_name>*.xml
+        ddl/    → all files
+        docs/   → all files
     """
     config  = _load_config(properties_path)
     section = "main"
@@ -124,13 +133,15 @@ def collect(properties_path: str = "config.properties") -> CollectorOutput:
     ddl_dir    = Path(config.get(section, "collector.ddl.path"))
     docs_dir   = Path(config.get(section, "collector.docs.path"))
 
-    raw_patterns = config.get(section, "collector.source.patterns", fallback="")
-    patterns = [p.strip() for p in raw_patterns.split(",") if p.strip()]
+    # Build source patterns: Java patterns are fixed, XML is scoped to flow name
+    java_patterns = ["*ImportWork.java", "*Bean.java"]
+    xml_pattern   = f"*{flow_name}*.xml"
+    source_patterns = java_patterns + [xml_pattern]
 
     output = CollectorOutput()
 
-    # Source files — filtered by SweetDev patterns
-    source_files, errs = _read_directory(source_dir, "source", patterns)
+    # Source files — Java (all) + XML (flow-scoped)
+    source_files, errs = _read_directory(source_dir, "source", source_patterns)
     output.source_files.extend(source_files)
     output.errors.extend(errs)
 

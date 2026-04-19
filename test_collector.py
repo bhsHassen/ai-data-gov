@@ -2,24 +2,32 @@
 Validation script for the Collector agent.
 
 Usage:
-  python test_collector.py
+  python test_collector.py <FLOW_NAME>
+  python test_collector.py TIERS_LEI
 
 Expected output:
   - Summary of files collected per category
-  - List of source files (filtered by SweetDev patterns)
-  - List of DDL files
-  - List of doc files
+  - Source: *ImportWork.java, *Bean.java (all) + *<FLOW_NAME>*.xml (scoped)
+  - DDL files (all)
+  - Doc files (all)
   - Any errors
 
 Setup:
   1. Edit config.properties with your local paths
-  2. Place some files in the configured directories
-  3. Run this script
+  2. Run this script with the flow name as argument
 """
 
+import sys
 from src.ai_data_gov.agents.collector import collect
 
-output = collect()
+if len(sys.argv) < 2:
+    print("Usage: python test_collector.py <FLOW_NAME>")
+    print("Example: python test_collector.py TIERS_LEI")
+    sys.exit(1)
+
+flow_name = sys.argv[1]
+print(f"Collecting context for flow: {flow_name}\n")
+output = collect(flow_name=flow_name)
 
 # Errors
 if output.errors:
@@ -34,7 +42,7 @@ print()
 
 # Source files
 if output.source_files:
-    print(f"SOURCE FILES ({len(output.source_files)}) — *ImportWork.java, *Bean.java, *.xml")
+    print(f"SOURCE FILES ({len(output.source_files)}) — *ImportWork.java, *Bean.java + *{flow_name}*.xml")
     for f in output.source_files:
         print(f"  [{f.extension}] {f.name}  ({len(f.content)} chars)")
 else:
