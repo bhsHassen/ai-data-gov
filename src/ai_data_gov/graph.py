@@ -58,11 +58,37 @@ def validator_node(state: FlowState) -> dict:
 
 def writer_node(state: FlowState) -> dict:
     """Writes the final spec to output/ as a Markdown file."""
-    status = "complete" if state.get("validation_ok") else "partial"
+    import os
+    from datetime import datetime
+
+    status     = "complete" if state.get("validation_ok") else "partial"
+    flow_name  = state["flow_name"]
+    spec_draft = state.get("spec_draft", "")
+    errors     = state.get("validation_errors", [])
+
     print(f"  [Writer]    writing {status} spec to output/")
 
-    # TODO: write actual file and return output_path
-    output_path = f"output/FLUX_{state['flow_name']}_SPEC.md"
+    os.makedirs("output", exist_ok=True)
+    output_path = f"output/FLUX_{flow_name}_SPEC.md"
+
+    # Build the file content
+    lines = []
+    lines.append(f"# FLUX_{flow_name}_SPEC")
+    lines.append(f"\n> Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"> Status: {status.upper()}")
+
+    if errors:
+        lines.append("\n## ⚠️ Validation warnings")
+        for e in errors:
+            lines.append(f"- {e}")
+
+    lines.append("\n---\n")
+    lines.append(spec_draft if spec_draft else "_No spec generated yet._")
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    print(f"  [Writer]    saved → {output_path}")
     return {
         "output_path": output_path,
     }
