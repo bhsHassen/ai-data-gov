@@ -24,11 +24,14 @@ Produce a single SUPERIOR specification by taking the best of both drafts.
 - **Never invent**: if neither analyst found the information, write `[INFORMATION NOT FOUND — source required]`
 
 ## FORMAT RULES — same as the analysts
-- Confluence-ready Markdown (tables, bold, bullet points — no raw code)
-- Confidence indicators on every transformation: ✅ ⚠️ ❓
+- Each section: 2-3 plain-language sentences + precise technical table
+- Confidence level on every field/transformation: HIGH / MEDIUM / LOW
+- MEDIUM and LOW must have an explanation line below the concerned row
+- Include Length and Offset in field tables when available (from DDL)
 - Ignore common technical fields (audit, batch infrastructure, generic flags)
-- Section 7 = implementation guidelines only, no source code
-- Section 5 Lineage = business story first, then summary table
+- Section 7: implementation guidelines split by Reader/Processor/Writer — no source code
+- Section 5: data journey narrative (2-3 sentences) then lineage table
+- Confluence-ready Markdown: tables, **bold**, bullet points — no HTML, no raw code
 
 ## OUTPUT
 Produce all 7 sections in order. The result must be publishable on Confluence as-is.
