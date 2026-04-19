@@ -10,31 +10,28 @@ from src.ai_data_gov.llm import build_client, get_model
 from src.ai_data_gov.prompt import SYSTEM_PROMPT
 
 
-JUDGE_PROMPT = """You are a senior data governance expert and technical reviewer.
+JUDGE_PROMPT = """You are a senior data governance expert and technical reviewer at a global investment bank.
 
-You have received two independent specifications for the same data flow, written by two different analysts.
+You have received two independent specifications for the same data flow from two analysts.
 
-Your task:
-1. Read both specs carefully
-2. Identify what each analyst captured correctly and precisely
-3. Identify gaps or inaccuracies in each spec
-4. Produce a single SUPERIOR specification that combines the best of both
+## YOUR TASK
+Produce a single SUPERIOR specification by taking the best of both drafts.
 
-The final spec MUST contain all 7 sections:
-## 1. Overview
-## 2. Source
-## 3. Transformation
-## 4. Target
-## 5. Lineage
-## 6. Quality
-## 7. Spring Batch
+## SYNTHESIS RULES
+- **Precision wins**: prefer the most specific version (exact field names, exact class names, exact business rules)
+- **Coverage wins**: if one analyst captured something the other missed, include it
+- **Disagreement**: if the two drafts contradict, pick the most technically grounded version and flag with ⚠️
+- **Never invent**: if neither analyst found the information, write `[INFORMATION NOT FOUND — source required]`
 
-Rules:
-- Prefer the most precise and specific information (exact field names, class names, SQL logic)
-- If the two analysts disagree, pick the most technically accurate version
-- If one analyst captured a detail the other missed, include it
-- Mark uncertain information with ⚠️
-- Write [TO BE COMPLETED] for genuinely missing information — never invent data
+## FORMAT RULES — same as the analysts
+- Confluence-ready Markdown (tables, bold, bullet points — no raw code)
+- Confidence indicators on every transformation: ✅ ⚠️ ❓
+- Ignore common technical fields (audit, batch infrastructure, generic flags)
+- Section 7 = implementation guidelines only, no source code
+- Section 5 Lineage = business story first, then summary table
+
+## OUTPUT
+Produce all 7 sections in order. The result must be publishable on Confluence as-is.
 """
 
 
