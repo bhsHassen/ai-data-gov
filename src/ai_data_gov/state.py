@@ -28,6 +28,7 @@ class FlowState(TypedDict):
 
     # Control
     retry_count: int                # current retry count (max 3)
+    self_review_enabled: bool       # if True, judge reviews its own output before validation
 
     # Writer output
     output_path: Optional[str]      # path to the written .md file

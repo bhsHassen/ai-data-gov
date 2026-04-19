@@ -233,6 +233,13 @@ def writer_node(state: FlowState) -> dict:
 #  Routing                                                                      #
 # --------------------------------------------------------------------------- #
 
+def route_after_judge(state: FlowState) -> str:
+    if state.get("self_review_enabled", True):
+        return "self_review"
+    log("router", "self-review disabled — skipping to validator")
+    return "validator"
+
+
 def route_after_validator(state: FlowState) -> str:
     if state.get("validation_ok"):
         return "writer"
@@ -264,7 +271,11 @@ def build_graph() -> StateGraph:
 
     graph.add_edge("collector",     "multi_analyst")
     graph.add_edge("multi_analyst", "judge")
-    graph.add_edge("judge",         "self_review")
+    graph.add_conditional_edges(
+        "judge",
+        route_after_judge,
+        {"self_review": "self_review", "validator": "validator"},
+    )
     graph.add_edge("self_review",   "validator")
     graph.add_conditional_edges(
         "validator",
