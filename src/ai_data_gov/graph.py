@@ -13,8 +13,7 @@ from langgraph.graph import StateGraph, END
 
 from src.ai_data_gov.state import FlowState
 from src.ai_data_gov.agents.collector import collect
-from src.ai_data_gov.llm import build_client, get_model
-from src.ai_data_gov.prompt import SYSTEM_PROMPT, build_user_prompt
+from src.ai_data_gov.agents.analyst import analyze
 
 
 MAX_RETRIES = 3
@@ -89,25 +88,13 @@ def analyst_node(state: FlowState) -> dict:
     flow_name = state["flow_name"]
     print(f"  [Analyst]   generating spec (attempt {attempt}/{MAX_RETRIES})")
 
-    # Append validator feedback to the prompt on retries
-    user_content = build_user_prompt(flow_name, state["raw_context"])
-    if attempt > 1 and state.get("validation_errors"):
-        feedback = "\n".join(state["validation_errors"])
-        user_content += (
-            f"\n\n⚠️ Previous attempt was incomplete. Fix these issues:\n{feedback}"
-        )
-
-    client = build_client()
-    response = client.chat.completions.create(
-        model=get_model(),
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user_content},
-        ],
-        temperature=0.2,
+    spec_draft = analyze(
+        flow_name=flow_name,
+        raw_context=state["raw_context"],
+        validation_errors=state.get("validation_errors"),
+        attempt=attempt,
     )
 
-    spec_draft = response.choices[0].message.content.strip()
     print(f"  [Analyst]   spec generated ({len(spec_draft)} chars)")
 
     return {
