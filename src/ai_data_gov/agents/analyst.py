@@ -1,13 +1,39 @@
 """
 Analyst agent — calls Qwen3 to generate a data flow specification.
 
-Receives raw context (source code, DDL, docs) from the Collector
-and produces a structured Markdown spec with 7 sections.
-On retry, validator feedback is appended to the prompt.
+Receives the initial context from the Collector.
+If more files are needed, uses the get_file tool to fetch them.
+Produces a structured Markdown spec with 7 sections.
 """
 
+import json
 from src.ai_data_gov.llm import build_client, get_model
 from src.ai_data_gov.prompt import SYSTEM_PROMPT, build_user_prompt
+from src.ai_data_gov.agents.collector import get_file
+
+
+# Tool definition exposed to Qwen3
+GET_FILE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "get_file",
+        "description": (
+            "Fetches the full content of a source file by filename. "
+            "Use this when you need a specific file that was not provided "
+            "in the initial context to complete your analysis."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "Exact filename to retrieve (e.g. TiersLEIImportWork.java)",
+                }
+            },
+            "required": ["filename"],
+        },
+    },
+}
 
 
 def analyze(
@@ -17,20 +43,25 @@ def analyze(
     attempt: int = 1,
 ) -> str:
     """
-    Calls Qwen3 and returns the generated spec as a Markdown string.
+    Calls Qwen3 with tool use to generate the flow spec.
+
+    The model can call get_file(filename) if it needs additional files.
+    The loop continues until the model returns a final text response.
 
     Args:
         flow_name:         Name of the flow (e.g. "TIERS_LEI").
-        raw_context:       Concatenated source files, DDL and docs.
-        validation_errors: Sections flagged as missing by the Validator (retry only).
-        attempt:           Current attempt number (used for logging).
+        raw_context:       Initial context from the Collector.
+        validation_errors: Missing sections flagged by Validator (retry only).
+        attempt:           Current attempt number.
 
     Returns:
         spec_draft: Markdown string with 7 sections.
     """
+    client = build_client()
+    model  = get_model()
+
     user_content = build_user_prompt(flow_name, raw_context)
 
-    # On retries, append validator feedback so Qwen3 knows what to fix
     if attempt > 1 and validation_errors:
         feedback = "\n".join(validation_errors)
         user_content += (
@@ -38,14 +69,49 @@ def analyze(
             f"Make sure to include these missing sections:\n{feedback}"
         )
 
-    client = build_client()
-    response = client.chat.completions.create(
-        model=get_model(),
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user_content},
-        ],
-        temperature=0.2,
-    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user",   "content": user_content},
+    ]
 
-    return response.choices[0].message.content.strip()
+    max_tool_calls = 5   # safety limit — avoid infinite tool loops
+    tool_calls_made = 0
+
+    while True:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=[GET_FILE_TOOL],
+            tool_choice="auto",
+            temperature=0.2,
+        )
+
+        message = response.choices[0].message
+
+        # Model returned a final answer — done
+        if not message.tool_calls:
+            return message.content.strip()
+
+        # Model requested files — execute and feed back results
+        messages.append(message)
+
+        for tool_call in message.tool_calls:
+            filename = json.loads(tool_call.function.arguments).get("filename", "")
+            print(f"  [Analyst]   requesting file: {filename}")
+
+            file_content = get_file(filename)
+
+            messages.append({
+                "role":         "tool",
+                "tool_call_id": tool_call.id,
+                "content":      file_content,
+            })
+            tool_calls_made += 1
+
+        # Safety: stop tool loop if limit reached
+        if tool_calls_made >= max_tool_calls:
+            print(f"  [Analyst]   tool call limit reached ({max_tool_calls}), finalizing")
+            messages.append({
+                "role":    "user",
+                "content": "You have reached the file request limit. Generate the spec now with what you have.",
+            })

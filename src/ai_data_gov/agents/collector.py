@@ -1,16 +1,24 @@
 """
 Collector agent — reads legacy source files, DDL and existing docs.
 
-Filters source files by SweetDev naming conventions + flow name:
-  *ImportWork.java       → all batch job classes
-  *Bean.java             → all data model classes
-  *<FLOW_NAME>*.xml      → only XML files matching the flow name
+Source file filtering strategy:
+  Step 1 — Pattern filter (SweetDev conventions):
+    *ImportWork.java, *Bean.java, *<FLOW_NAME>*.xml
 
-DDL and docs directories are read entirely (no filter).
-Paths are configured in config.properties.
+  Step 2 — Content filter (flow name variants):
+    Keeps only files whose name or content contains the flow name
+    in any of its common forms (TIERS_LEI, tiers_lei, TiersLei, tierslei...)
+
+  Result: a small, relevant set of files for the given flow.
+
+DDL and docs: all files (no filter).
+
+Also exposes get_file() as a tool for the Analyst to request
+additional files not returned by the initial collection.
 """
 
 import fnmatch
+import re
 from pathlib import Path
 from dataclasses import dataclass, field
 from configparser import ConfigParser
@@ -22,7 +30,6 @@ from configparser import ConfigParser
 
 def _load_config(properties_path: str = "config.properties") -> ConfigParser:
     config = ConfigParser()
-    # ConfigParser needs a [section] header — we fake one
     with open(properties_path, encoding="utf-8") as f:
         content = "[main]\n" + f.read()
     config.read_string(content)
@@ -63,26 +70,53 @@ class CollectorOutput:
 
 
 # --------------------------------------------------------------------------- #
+#  Flow name variants                                                           #
+# --------------------------------------------------------------------------- #
+
+def _flow_name_variants(flow_name: str) -> list[str]:
+    """
+    Generates common textual variants of a flow name for content search.
+
+    Example — flow_name = "TIERS_LEI":
+      TIERS_LEI, tiers_lei, TiersLei, tierslei, TIERSLEI
+    """
+    parts = flow_name.split("_")
+
+    variants = set()
+    variants.add(flow_name)                                      # TIERS_LEI
+    variants.add(flow_name.lower())                              # tiers_lei
+    variants.add(flow_name.replace("_", ""))                     # TIERSLEI
+    variants.add(flow_name.lower().replace("_", ""))             # tierslei
+    variants.add("".join(p.capitalize() for p in parts))         # TiersLei
+
+    return list(variants)
+
+
+def _contains_flow_name(text: str, variants: list[str]) -> bool:
+    """Returns True if text contains any flow name variant (case-insensitive)."""
+    text_lower = text.lower()
+    return any(v.lower() in text_lower for v in variants)
+
+
+# --------------------------------------------------------------------------- #
 #  Internal helpers                                                             #
 # --------------------------------------------------------------------------- #
 
 def _matches_any(filename: str, patterns: list[str]) -> bool:
-    """Return True if filename matches at least one glob pattern."""
     return any(fnmatch.fnmatch(filename, p.strip()) for p in patterns)
 
 
-def _read_directory(
+def _scan_directory(
     directory: Path,
     category: str,
     patterns: list[str] | None = None,
 ) -> tuple[list[SourceFile], list[str]]:
     """
-    Read all files in directory (recursively).
-    If patterns is provided, only files matching at least one pattern are kept.
-    Returns (files, errors).
+    Reads all files matching patterns (or all files if no patterns).
+    Does NOT apply flow name filter — used for DDL and docs.
     """
-    files: list[SourceFile] = []
-    errors: list[str] = []
+    files:  list[SourceFile] = []
+    errors: list[str]        = []
 
     if not directory.exists():
         errors.append(f"Directory not found: {directory}")
@@ -108,6 +142,72 @@ def _read_directory(
     return files, errors
 
 
+def _scan_source_for_flow(
+    directory: Path,
+    flow_name: str,
+    patterns: list[str],
+) -> tuple[list[SourceFile], list[str]]:
+    """
+    Scans source directory with two-step filtering:
+      1. Keep only files matching SweetDev patterns (filename)
+      2. Keep only files whose name OR content contains the flow name
+    """
+    files:    list[SourceFile] = []
+    errors:   list[str]        = []
+    variants: list[str]        = _flow_name_variants(flow_name)
+
+    if not directory.exists():
+        errors.append(f"Directory not found: {directory}")
+        return files, errors
+
+    for file_path in sorted(directory.rglob("*")):
+        if not file_path.is_file():
+            continue
+
+        # Step 1 — SweetDev pattern filter
+        if not _matches_any(file_path.name, patterns):
+            continue
+
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="replace")
+
+            # Step 2 — Flow name content filter
+            if not _contains_flow_name(file_path.name + "\n" + content, variants):
+                continue
+
+            files.append(SourceFile(
+                name=file_path.name,
+                path=str(file_path),
+                extension=file_path.suffix.lower(),
+                category="source",
+                content=content,
+            ))
+        except Exception as e:
+            errors.append(f"Error reading {file_path}: {e}")
+
+    return files, errors
+
+
+# --------------------------------------------------------------------------- #
+#  Tool: get_file (for Analyst tool use)                                       #
+# --------------------------------------------------------------------------- #
+
+def get_file(filename: str, properties_path: str = "config.properties") -> str:
+    """
+    Tool exposed to the Analyst.
+    Searches for a file by name in the source directory and returns its content.
+    Used when the Analyst needs a file not returned by the initial collection.
+    """
+    config     = _load_config(properties_path)
+    source_dir = Path(config.get("main", "collector.source.path"))
+
+    for file_path in source_dir.rglob(filename):
+        if file_path.is_file():
+            return file_path.read_text(encoding="utf-8", errors="replace")
+
+    return f"[FILE NOT FOUND: {filename}]"
+
+
 # --------------------------------------------------------------------------- #
 #  Public API                                                                   #
 # --------------------------------------------------------------------------- #
@@ -117,14 +217,14 @@ def collect(flow_name: str, properties_path: str = "config.properties") -> Colle
     Main entry point.
 
     Args:
-        flow_name:        Name of the flow to process (e.g. "TIERS_LEI").
-                          Used to filter XML files: only *<flow_name>*.xml are kept.
-        properties_path:  Path to config.properties file.
+        flow_name:        Flow to process (e.g. "TIERS_LEI").
+        properties_path:  Path to config.properties.
 
-    Filtering rules:
-        source/ → *ImportWork.java (all), *Bean.java (all), *<flow_name>*.xml
-        ddl/    → all files
-        docs/   → all files
+    Source filtering:
+        - SweetDev patterns: *ImportWork.java, *Bean.java, *<flow_name>*.xml
+        - Content filter: name or content must contain flow name (any variant)
+
+    DDL + docs: all files returned without content filtering.
     """
     config  = _load_config(properties_path)
     section = "main"
@@ -133,25 +233,24 @@ def collect(flow_name: str, properties_path: str = "config.properties") -> Colle
     ddl_dir    = Path(config.get(section, "collector.ddl.path"))
     docs_dir   = Path(config.get(section, "collector.docs.path"))
 
-    # Build source patterns: Java patterns are fixed, XML is scoped to flow name
-    java_patterns = ["*ImportWork.java", "*Bean.java"]
-    xml_pattern   = f"*{flow_name}*.xml"
+    java_patterns   = ["*ImportWork.java", "*Bean.java"]
+    xml_pattern     = f"*{flow_name}*.xml"
     source_patterns = java_patterns + [xml_pattern]
 
     output = CollectorOutput()
 
-    # Source files — Java (all) + XML (flow-scoped)
-    source_files, errs = _read_directory(source_dir, "source", source_patterns)
+    # Source — pattern + flow name content filter
+    source_files, errs = _scan_source_for_flow(source_dir, flow_name, source_patterns)
     output.source_files.extend(source_files)
     output.errors.extend(errs)
 
-    # DDL files — all files
-    ddl_files, errs = _read_directory(ddl_dir, "ddl")
+    # DDL — all files
+    ddl_files, errs = _scan_directory(ddl_dir, "ddl")
     output.ddl_files.extend(ddl_files)
     output.errors.extend(errs)
 
-    # Doc files — all files
-    doc_files, errs = _read_directory(docs_dir, "doc")
+    # Docs — all files
+    doc_files, errs = _scan_directory(docs_dir, "doc")
     output.doc_files.extend(doc_files)
     output.errors.extend(errs)
 
