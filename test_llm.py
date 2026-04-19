@@ -41,16 +41,13 @@ print(f"SSL verify    : {ssl_verify}")
 print()
 
 # Build httpx client with proxy + SSL settings
-proxies = {}
-if https_proxy:
-    proxies["https://"] = https_proxy
-if http_proxy:
-    proxies["http://"] = http_proxy
-
-http_client = httpx.Client(
-    proxies=proxies if proxies else None,
-    verify=ssl_verify,
-)
+# httpx >= 0.27 uses mounts instead of proxies
+proxy_url = https_proxy or http_proxy
+if proxy_url:
+    transport = httpx.HTTPTransport(proxy=proxy_url, verify=ssl_verify)
+    http_client = httpx.Client(transport=transport, verify=ssl_verify)
+else:
+    http_client = httpx.Client(verify=ssl_verify)
 
 client = OpenAI(
     base_url=base_url,
