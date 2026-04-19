@@ -37,10 +37,12 @@ Rules:
 """
 
 
-def build_user_prompt(flow_name: str, raw_context: str) -> str:
-    return f"""Analyze the following artifacts for data flow: {flow_name}
+def build_user_prompt(flow_name: str, raw_context: str, location: str | None = None) -> str:
+    scope = f"{flow_name} — Location: {location}" if location else flow_name
+    return f"""Analyze the following artifacts for data flow: {scope}
 
 {raw_context}
 
 Generate the complete specification with all 7 sections.
+{"Note: this spec applies specifically to the " + location + " location." if location else ""}
 """

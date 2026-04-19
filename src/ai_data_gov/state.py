@@ -9,6 +9,7 @@ from typing import TypedDict, Optional
 class FlowState(TypedDict):
     # Input
     flow_name: str                  # e.g. "TIERS_LEI"
+    location: Optional[str]         # e.g. "Sydney", "London" (optional)
 
     # Collector output
     source_files_count: int         # number of source files collected

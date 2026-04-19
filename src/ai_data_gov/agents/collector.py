@@ -98,6 +98,11 @@ def _contains_flow_name(text: str, variants: list[str]) -> bool:
     return any(v.lower() in text_lower for v in variants)
 
 
+def _contains_location(text: str, location: str) -> bool:
+    """Returns True if text contains the location name (case-insensitive)."""
+    return location.lower() in text.lower()
+
+
 # --------------------------------------------------------------------------- #
 #  Internal helpers                                                             #
 # --------------------------------------------------------------------------- #
@@ -146,11 +151,13 @@ def _scan_source_for_flow(
     directory: Path,
     flow_name: str,
     patterns: list[str],
+    location: str | None = None,
 ) -> tuple[list[SourceFile], list[str]]:
     """
-    Scans source directory with two-step filtering:
-      1. Keep only files matching SweetDev patterns (filename)
-      2. Keep only files whose name OR content contains the flow name
+    Scans source directory with filtering:
+      1. SweetDev pattern filter (filename)
+      2. Flow name content filter (name or content contains flow name variant)
+      3. Location filter — if provided, content must also contain the location
     """
     files:    list[SourceFile] = []
     errors:   list[str]        = []
@@ -169,10 +176,15 @@ def _scan_source_for_flow(
             continue
 
         try:
-            content = file_path.read_text(encoding="utf-8", errors="replace")
+            content    = file_path.read_text(encoding="utf-8", errors="replace")
+            searchable = file_path.name + "\n" + content
 
-            # Step 2 — Flow name content filter
-            if not _contains_flow_name(file_path.name + "\n" + content, variants):
+            # Step 2 — Flow name filter
+            if not _contains_flow_name(searchable, variants):
+                continue
+
+            # Step 3 — Location filter (optional)
+            if location and not _contains_location(searchable, location):
                 continue
 
             files.append(SourceFile(
@@ -212,19 +224,20 @@ def get_file(filename: str, properties_path: str = "config.properties") -> str:
 #  Public API                                                                   #
 # --------------------------------------------------------------------------- #
 
-def collect(flow_name: str, properties_path: str = "config.properties") -> CollectorOutput:
+def collect(
+    flow_name: str,
+    location: str | None = None,
+    properties_path: str = "config.properties",
+) -> CollectorOutput:
     """
     Main entry point.
 
     Args:
         flow_name:        Flow to process (e.g. "TIERS_LEI").
+        location:         Optional location filter (e.g. "Sydney", "London").
+                          If provided, only files whose content mentions
+                          both the flow name AND the location are kept.
         properties_path:  Path to config.properties.
-
-    Source filtering:
-        - SweetDev patterns: *ImportWork.java, *Bean.java, *<flow_name>*.xml
-        - Content filter: name or content must contain flow name (any variant)
-
-    DDL + docs: all files returned without content filtering.
     """
     config  = _load_config(properties_path)
     section = "main"
@@ -239,8 +252,10 @@ def collect(flow_name: str, properties_path: str = "config.properties") -> Colle
 
     output = CollectorOutput()
 
-    # Source — pattern + flow name content filter
-    source_files, errs = _scan_source_for_flow(source_dir, flow_name, source_patterns)
+    # Source — pattern + flow name + optional location filter
+    source_files, errs = _scan_source_for_flow(
+        source_dir, flow_name, source_patterns, location
+    )
     output.source_files.extend(source_files)
     output.errors.extend(errs)
 

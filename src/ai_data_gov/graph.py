@@ -18,37 +18,67 @@ from src.ai_data_gov.agents.analyst import analyze
 
 MAX_RETRIES = 3
 
+# Max chars sent to the model (~4 chars per token, keeping 50k tokens for response)
+# 262144 - 50000 = 212144 tokens * 4 = ~848576 chars
+MAX_CONTEXT_CHARS = 800_000
+
 
 # --------------------------------------------------------------------------- #
 #  Helpers                                                                      #
 # --------------------------------------------------------------------------- #
 
-def _build_raw_context(flow_name: str) -> tuple[dict, str]:
+def _add_files_with_limit(
+    sections: list[str],
+    files: list,
+    header: str,
+    budget: int,
+) -> int:
+    """
+    Adds files to sections respecting the remaining char budget.
+    Returns remaining budget after insertion.
+    Truncates the last file if needed rather than skipping it entirely.
+    """
+    if not files or budget <= 0:
+        return budget
+
+    sections.append(header)
+    for f in files:
+        header_line = f"--- {f.name} ---\n"
+        available   = budget - len(header_line)
+        if available <= 0:
+            sections.append(f"--- {f.name} --- [SKIPPED: context limit reached]")
+            continue
+
+        content  = f.content[:available]
+        truncated = len(f.content) > available
+        sections.append(header_line + content)
+        if truncated:
+            sections.append(f"[... {f.name} truncated — context limit reached]")
+
+        budget -= len(header_line) + len(content)
+
+    return budget
+
+
+def _build_raw_context(flow_name: str, location: str | None = None) -> tuple[dict, str]:
     """
     Calls the Collector and assembles a single text context for the Analyst.
+    Priority order: DDL → source → docs (most structural info first).
+    Respects MAX_CONTEXT_CHARS to stay within model limits.
     Returns (counts_dict, raw_context_string).
     """
-    output = collect(flow_name)
+    output  = collect(flow_name, location=location)
+    budget  = MAX_CONTEXT_CHARS
+    sections: list[str] = []
 
-    sections = []
+    # Priority 1 — DDL (schema is essential)
+    budget = _add_files_with_limit(sections, output.ddl_files,    "=== DDL FILES ===",              budget)
 
-    if output.source_files:
-        sections.append("=== SOURCE FILES ===")
-        for f in output.source_files:
-            sections.append(f"--- {f.name} ---")
-            sections.append(f.content)
+    # Priority 2 — Source code
+    budget = _add_files_with_limit(sections, output.source_files, "=== SOURCE FILES ===",           budget)
 
-    if output.ddl_files:
-        sections.append("=== DDL FILES ===")
-        for f in output.ddl_files:
-            sections.append(f"--- {f.name} ---")
-            sections.append(f.content)
-
-    if output.doc_files:
-        sections.append("=== EXISTING DOCUMENTATION ===")
-        for f in output.doc_files:
-            sections.append(f"--- {f.name} ---")
-            sections.append(f.content)
+    # Priority 3 — Existing docs
+    budget = _add_files_with_limit(sections, output.doc_files,    "=== EXISTING DOCUMENTATION ===", budget)
 
     if output.errors:
         sections.append("=== COLLECTOR WARNINGS ===")
@@ -56,7 +86,7 @@ def _build_raw_context(flow_name: str) -> tuple[dict, str]:
             sections.append(f"⚠️ {e}")
 
     counts = {
-        "source_files_count": output.file_count if hasattr(output, "file_count") else len(output.source_files),
+        "source_files_count": len(output.source_files),
         "ddl_files_count":    len(output.ddl_files),
         "doc_files_count":    len(output.doc_files),
     }
@@ -71,9 +101,12 @@ def _build_raw_context(flow_name: str) -> tuple[dict, str]:
 def collector_node(state: FlowState) -> dict:
     """Reads source files, DDL and docs. Builds raw context for the Analyst."""
     flow_name = state["flow_name"]
-    print(f"  [Collector] collecting context for flow: {flow_name}")
+    location  = state.get("location")
+    loc_label = f" [{location}]" if location else ""
+    print(f"  [Collector] collecting context for flow: {flow_name}{loc_label}")
 
-    counts, raw_context = _build_raw_context(flow_name)
+    location = state.get("location")
+    counts, raw_context = _build_raw_context(flow_name, location)
 
     print(f"  [Collector] {counts['source_files_count']} source, "
           f"{counts['ddl_files_count']} ddl, "
@@ -91,6 +124,7 @@ def analyst_node(state: FlowState) -> dict:
     spec_draft = analyze(
         flow_name=flow_name,
         raw_context=state["raw_context"],
+        location=state.get("location"),
         validation_errors=state.get("validation_errors"),
         attempt=attempt,
     )
@@ -141,7 +175,8 @@ def writer_node(state: FlowState) -> dict:
     print(f"  [Writer]    writing {status} spec to output/")
 
     os.makedirs("output", exist_ok=True)
-    output_path = f"output/FLOW_{flow_name}_SPEC.md"
+    loc_suffix  = f"_{state['location'].upper()}" if state.get("location") else ""
+    output_path = f"output/FLOW_{flow_name}{loc_suffix}_SPEC.md"
 
     lines = []
     lines.append(f"# FLOW_{flow_name}_SPEC")

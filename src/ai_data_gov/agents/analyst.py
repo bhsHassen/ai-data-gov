@@ -39,6 +39,7 @@ GET_FILE_TOOL = {
 def analyze(
     flow_name: str,
     raw_context: str,
+    location: str | None = None,
     validation_errors: list[str] | None = None,
     attempt: int = 1,
 ) -> str:
@@ -60,7 +61,7 @@ def analyze(
     client = build_client()
     model  = get_model()
 
-    user_content = build_user_prompt(flow_name, raw_context)
+    user_content = build_user_prompt(flow_name, raw_context, location)
 
     if attempt > 1 and validation_errors:
         feedback = "\n".join(validation_errors)
