@@ -69,11 +69,11 @@ def writer_node(state: FlowState) -> dict:
     print(f"  [Writer]    writing {status} spec to output/")
 
     os.makedirs("output", exist_ok=True)
-    output_path = f"output/FLUX_{flow_name}_SPEC.md"
+    output_path = f"output/FLOW_{flow_name}_SPEC.md"
 
     # Build the file content
     lines = []
-    lines.append(f"# FLUX_{flow_name}_SPEC")
+    lines.append(f"# FLOW_{flow_name}_SPEC")
     lines.append(f"\n> Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"> Status: {status.upper()}")
 

@@ -14,7 +14,7 @@ Reads legacy Java/SQL code and Oracle DB schemas, then generates structured Mark
 Collector → Analyst (Qwen3) → Validator → Writer
 ```
 
-Output: `FLUX_[NAME]_SPEC.md` with 7 standardized sections.
+Output: `FLOW_[NAME]_SPEC.md` with 7 standardized sections.
 
 ## Setup
 
@@ -27,7 +27,7 @@ cp .env.example .env
 ## Usage
 
 ```bash
-python main.py --flow FLUX_TIERS_LEI
+python main.py --flow TIERS_LEI
 ```
 
 ## Project structure
