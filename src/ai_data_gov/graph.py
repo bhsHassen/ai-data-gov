@@ -67,7 +67,7 @@ def _build_raw_context(flow_name: str, location: str | None = None) -> tuple[dic
     Respects MAX_CONTEXT_CHARS to stay within model limits.
     Returns (counts_dict, raw_context_string).
     """
-    output  = collect(flow_name, location=location)
+    output  = collect(flow_name)
     budget  = MAX_CONTEXT_CHARS
     sections: list[str] = []
 
