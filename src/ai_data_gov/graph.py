@@ -8,15 +8,15 @@ Pipeline:
 """
 from __future__ import annotations
 
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from langgraph.graph import StateGraph, END
 
 from src.ai_data_gov.state import FlowState
 from src.ai_data_gov.agents.collector import collect
 from src.ai_data_gov.agents.analyst import analyze
 from src.ai_data_gov.agents.judge import judge
+from src.ai_data_gov.agents.validator import validate
+from src.ai_data_gov.agents.writer import write
 from src.ai_data_gov.llm import get_model
 
 
@@ -183,58 +183,31 @@ def validator_node(state: FlowState) -> dict:
     """Checks that all 7 required sections are present in spec_draft."""
     print(f"  [Validator] checking spec completeness")
 
-    required_sections = [
-        "## 1. Overview",
-        "## 2. Source",
-        "## 3. Transformation",
-        "## 4. Target",
-        "## 5. Lineage",
-        "## 6. Quality",
-        "## 7. Spring Batch",
-    ]
+    ok, missing = validate(state.get("spec_draft", ""))
 
-    spec   = state.get("spec_draft", "")
-    errors = [s for s in required_sections if s.lower() not in spec.lower()]
-
-    if errors:
-        print(f"  [Validator] missing sections: {errors}")
+    if missing:
+        print(f"  [Validator] missing sections: {missing}")
     else:
         print(f"  [Validator] all 7 sections present")
 
     return {
-        "validation_ok":     len(errors) == 0,
-        "validation_errors": errors,
+        "validation_ok":     ok,
+        "validation_errors": missing,
     }
 
 
 def writer_node(state: FlowState) -> dict:
     """Writes the final spec to output/ as a Markdown file."""
-    status     = "complete" if state.get("validation_ok") else "partial"
-    flow_name  = state["flow_name"]
-    spec_draft = state.get("spec_draft", "")
-    errors     = state.get("validation_errors", [])
-
+    status = "complete" if state.get("validation_ok") else "partial"
     print(f"  [Writer]    writing {status} spec to output/")
 
-    os.makedirs("output", exist_ok=True)
-    loc_suffix  = f"_{state['location'].upper()}" if state.get("location") else ""
-    output_path = f"output/FLOW_{flow_name}{loc_suffix}_SPEC.md"
-
-    lines = []
-    lines.append(f"# FLOW_{flow_name}_SPEC")
-    lines.append(f"\n> Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    lines.append(f"> Status: {status.upper()}")
-
-    if errors:
-        lines.append("\n## ⚠️ Validation warnings")
-        for e in errors:
-            lines.append(f"- {e}")
-
-    lines.append("\n---\n")
-    lines.append(spec_draft if spec_draft else "_No spec generated yet._")
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+    output_path = write(
+        flow_name=state["flow_name"],
+        spec_draft=state.get("spec_draft", ""),
+        validation_ok=state.get("validation_ok", False),
+        validation_errors=state.get("validation_errors", []),
+        location=state.get("location"),
+    )
 
     print(f"  [Writer]    saved → {output_path}")
     return {"output_path": output_path}
