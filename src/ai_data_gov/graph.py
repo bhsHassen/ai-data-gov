@@ -170,6 +170,7 @@ def judge_node(state: FlowState) -> dict:
 
     final_spec = judge(
         flow_name=flow_name,
+        raw_context=state["raw_context"],
         draft_analyst1=draft1,
         draft_analyst2=draft2,
         location=state.get("location"),

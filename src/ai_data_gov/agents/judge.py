@@ -1,38 +1,43 @@
 """
-Judge agent — synthesizes the best spec from multiple analyst drafts.
+Judge agent — verifies and synthesizes the best spec from multiple analyst drafts.
 
-Receives drafts from Analyst 1 (Qwen3) and Analyst 2 (Codestral).
-Uses GPT OSS 120B to compare and produce a superior final spec.
+Receives the original source artifacts (raw_context) AND both analyst drafts.
+This allows the Judge to verify accuracy against the ground truth, not just
+compare two opinions.
 """
 from __future__ import annotations
 
 from src.ai_data_gov.llm import build_client, get_model
-from src.ai_data_gov.prompt import SYSTEM_PROMPT
 
 
 JUDGE_PROMPT = """You are a senior data governance expert and technical reviewer at a global investment bank.
 
-You have received two independent specifications for the same data flow from two analysts.
+You have received:
+1. The original source artifacts (source code, DDL, existing documentation)
+2. Two independent specifications written by two analysts from those artifacts
 
 ## YOUR TASK
-Produce a single SUPERIOR specification by taking the best of both drafts.
+Produce a single SUPERIOR specification by:
+- Verifying each analyst's claims against the original source artifacts
+- Taking the most accurate and complete information from both drafts
+- Correcting errors or gaps that both analysts missed — using the source artifacts as ground truth
 
-## SYNTHESIS RULES
-- **Precision wins**: prefer the most specific version (exact field names, exact class names, exact business rules)
+## VERIFICATION RULES
+- **Ground truth first**: always verify against the source artifacts, not just between the two drafts
+- **Precision wins**: prefer the most specific version (exact field names, table names, business rules)
 - **Coverage wins**: if one analyst captured something the other missed, include it
-- **Disagreement**: if the two drafts contradict, pick the most technically grounded version and flag with ⚠️
-- **Never invent**: if neither analyst found the information, write `[INFORMATION NOT FOUND — source required]`
+- **Correction**: if both analysts are wrong or incomplete on a point, fix it using the source artifacts
+- **Honest gaps**: if the information is genuinely absent from all artifacts, write `[INFORMATION NOT FOUND — source required]`
 
-## FORMAT RULES — same as the analysts
+## FORMAT RULES
 - Each section: 2-3 plain-language sentences + precise technical table
-- Confidence (HIGH/MEDIUM/LOW) applies to Section 2 and Section 3 only
-- MEDIUM and LOW must have an explanation line below the concerned row
+- Confidence (HIGH/MEDIUM/LOW with explanation for MEDIUM/LOW) on Sections 2 and 3 only
 - Length and Offset in Section 2 only (from DDL)
 - Section 4 Target: simple table (Field, Populated From) — no Length/Offset/Confidence
 - Section 5 Lineage: narrative + table without Confidence column
 - Section 6 Quality: table without Confidence column
 - Section 7: Reader/Processor/Writer guidelines — no source code
-- No redundancy — never repeat information already stated in a previous section
+- No redundancy — do not repeat information already stated in a previous section
 - Confluence-ready Markdown: tables, **bold**, bullet points — no HTML, no raw code
 
 ## OUTPUT
@@ -42,25 +47,30 @@ Produce all 7 sections in order. The result must be publishable on Confluence as
 
 def judge(
     flow_name: str,
+    raw_context: str,
     draft_analyst1: str,
     draft_analyst2: str,
     location: str | None = None,
 ) -> str:
     """
-    Synthesizes the best spec from two analyst drafts.
+    Verifies and synthesizes the best spec from two analyst drafts.
 
     Args:
         flow_name:      Name of the flow.
+        raw_context:    Original source artifacts from the Collector (ground truth).
         draft_analyst1: Spec from Analyst 1 (Qwen3).
         draft_analyst2: Spec from Analyst 2 (Codestral).
         location:       Optional location context.
 
     Returns:
-        Final synthesized spec as Markdown string.
+        Final verified and synthesized spec as Markdown string.
     """
-    loc_note = f" for location: {location}" if location else ""
+    loc_note = f" — Location: {location}" if location else ""
 
     user_content = f"""Flow: {flow_name}{loc_note}
+
+=== SOURCE ARTIFACTS (ground truth) ===
+{raw_context}
 
 === ANALYST 1 DRAFT (Qwen3) ===
 {draft_analyst1}
@@ -68,7 +78,7 @@ def judge(
 === ANALYST 2 DRAFT (Codestral) ===
 {draft_analyst2}
 
-Synthesize the best possible specification from these two drafts.
+Verify both drafts against the source artifacts and produce the superior final specification.
 """
 
     client = build_client()
