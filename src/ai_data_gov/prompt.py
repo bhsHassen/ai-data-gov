@@ -20,13 +20,15 @@ Write each section so that BOTH audiences can use it directly:
 
 ## CONFIDENCE SCORING — APPLIES TO SECTIONS 2 AND 3 ONLY
 
-| Level | When to use |
-|-------|-------------|
-| **HIGH** | Directly observed and confirmed in source code or DDL |
-| **MEDIUM** | Inferred from naming conventions or partial evidence |
-| **LOW** | Uncertain — a mandatory explanation must follow |
+Use these pictograms in the Confidence column:
 
-For every MEDIUM or LOW entry, add an explanation on the next line:
+| Pictogram | Level | When to use |
+|-----------|-------|-------------|
+| 🟢 HIGH | Directly observed and confirmed in source code or DDL |
+| 🟡 MEDIUM | Inferred from naming conventions or partial evidence |
+| 🔴 LOW | Uncertain — a mandatory explanation must follow |
+
+For every 🟡 MEDIUM or 🔴 LOW entry, add an explanation on the next line:
 > *⚠️ [reason for uncertainty and what information would confirm it]*
 
 ---
@@ -70,6 +72,11 @@ Brief description of the key business rules applied.
 
 | Source Field | Business Rule | Target Field | Confidence |
 |-------------|--------------|-------------|------------|
+| example | direct mapping | example | 🟢 HIGH |
+| example | inferred from naming | example | 🟡 MEDIUM |
+| example | uncertain | example | 🔴 LOW |
+
+> *Replace the example rows with actual transformations found in the artifacts.*
 
 ---
 

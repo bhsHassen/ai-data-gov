@@ -31,7 +31,7 @@ Produce a single SUPERIOR specification by:
 
 ## FORMAT RULES
 - Each section: 2-3 plain-language sentences + precise technical table
-- Confidence (HIGH/MEDIUM/LOW with explanation for MEDIUM/LOW) on Sections 2 and 3 only
+- Confidence on Sections 2 and 3 only — use pictograms: 🟢 HIGH / 🟡 MEDIUM / 🔴 LOW
 - Length and Offset in Section 2 only (from DDL)
 - Section 4 Target: simple table (Field, Populated From) — no Length/Offset/Confidence
 - Section 5 Lineage: narrative + table without Confidence column
