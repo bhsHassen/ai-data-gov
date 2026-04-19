@@ -11,6 +11,7 @@ import json
 from src.ai_data_gov.llm import build_client, get_model
 from src.ai_data_gov.prompt import SYSTEM_PROMPT, build_user_prompt
 from src.ai_data_gov.agents.collector import get_file
+from src.ai_data_gov.console import log
 
 
 # Tool definition exposed to Qwen3
@@ -100,7 +101,7 @@ def analyze(
 
         for tool_call in message.tool_calls:
             filename = json.loads(tool_call.function.arguments).get("filename", "")
-            print(f"  [Analyst]   requesting file: {filename}")
+            log("analyst", f"requesting file: {filename}")
 
             file_content = get_file(filename)
 
@@ -113,7 +114,7 @@ def analyze(
 
         # Safety: stop tool loop if limit reached
         if tool_calls_made >= max_tool_calls:
-            print(f"  [Analyst]   tool call limit reached ({max_tool_calls}), finalizing")
+            log("analyst", f"tool call limit reached ({max_tool_calls}), finalizing")
             messages.append({
                 "role":    "user",
                 "content": "You have reached the file request limit. Generate the spec now with what you have.",

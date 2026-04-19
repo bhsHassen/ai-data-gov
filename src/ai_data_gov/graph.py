@@ -18,6 +18,7 @@ from src.ai_data_gov.agents.judge import judge
 from src.ai_data_gov.agents.validator import validate
 from src.ai_data_gov.agents.writer import write
 from src.ai_data_gov.llm import get_model
+from src.ai_data_gov.console import log
 
 
 MAX_RETRIES = 3
@@ -107,14 +108,13 @@ def collector_node(state: FlowState) -> dict:
     flow_name = state["flow_name"]
     location  = state.get("location")
     loc_label = f" [{location}]" if location else ""
-    print(f"  [Collector] collecting context for flow: {flow_name}{loc_label}")
+    log("collector", f"collecting context for: {flow_name}{loc_label}")
 
-    location = state.get("location")
     counts, raw_context = _build_raw_context(flow_name, location)
 
-    print(f"  [Collector] {counts['source_files_count']} source, "
-          f"{counts['ddl_files_count']} ddl, "
-          f"{counts['doc_files_count']} doc file(s)")
+    log("collector", f"{counts['source_files_count']} source, "
+                     f"{counts['ddl_files_count']} ddl, "
+                     f"{counts['doc_files_count']} doc file(s)")
 
     return {**counts, "raw_context": raw_context}
 
@@ -127,7 +127,7 @@ def multi_analyst_node(state: FlowState) -> dict:
 
     model1 = get_model("analyst1")
     model2 = get_model("analyst2")
-    print(f"  [Analysts]  running {model1} + {model2} in parallel (attempt {attempt}/{MAX_RETRIES})")
+    log("analyst", f"running {model1} + {model2} in parallel (attempt {attempt}/{MAX_RETRIES})")
 
     drafts: dict = {}
 
@@ -148,7 +148,7 @@ def multi_analyst_node(state: FlowState) -> dict:
             role, draft = future.result()
             model_name   = get_model(role)
             drafts[model_name] = draft
-            print(f"  [Analysts]  {model_name} done ({len(draft)} chars)")
+            log("analyst", f"{model_name} done ({len(draft)} chars)")
 
     return {
         "spec_drafts": drafts,
@@ -162,7 +162,7 @@ def judge_node(state: FlowState) -> dict:
     drafts    = state.get("spec_drafts", {})
     model_judge = get_model("judge")
 
-    print(f"  [Judge]     synthesizing with {model_judge}")
+    log("judge", f"synthesizing with {model_judge}")
 
     draft_list = list(drafts.values())
     draft1 = draft_list[0] if len(draft_list) > 0 else ""
@@ -176,20 +176,20 @@ def judge_node(state: FlowState) -> dict:
         location=state.get("location"),
     )
 
-    print(f"  [Judge]     final spec ({len(final_spec)} chars)")
+    log("judge", f"final spec ({len(final_spec)} chars)")
     return {"spec_draft": final_spec}
 
 
 def validator_node(state: FlowState) -> dict:
     """Checks that all 7 required sections are present in spec_draft."""
-    print(f"  [Validator] checking spec completeness")
+    log("validator", "checking spec completeness")
 
     ok, missing = validate(state.get("spec_draft", ""))
 
     if missing:
-        print(f"  [Validator] missing sections: {missing}")
+        log("validator", f"missing sections: {missing}")
     else:
-        print(f"  [Validator] all 7 sections present")
+        log("validator", "all 7 sections present ✓")
 
     return {
         "validation_ok":     ok,
@@ -200,7 +200,7 @@ def validator_node(state: FlowState) -> dict:
 def writer_node(state: FlowState) -> dict:
     """Writes the final spec to output/ as a Markdown file."""
     status = "complete" if state.get("validation_ok") else "partial"
-    print(f"  [Writer]    writing {status} spec to output/")
+    log("writer", f"writing {status} spec")
 
     output_path = write(
         flow_name=state["flow_name"],
@@ -210,7 +210,7 @@ def writer_node(state: FlowState) -> dict:
         location=state.get("location"),
     )
 
-    print(f"  [Writer]    saved → {output_path}")
+    log("writer", f"saved → {output_path}")
     return {"output_path": output_path}
 
 
@@ -224,10 +224,10 @@ def route_after_validator(state: FlowState) -> str:
 
     retry_count = state.get("retry_count", 0)
     if retry_count < MAX_RETRIES:
-        print(f"  [Router]    validation failed — retrying ({retry_count}/{MAX_RETRIES})")
+        log("router", f"validation failed — retrying ({retry_count}/{MAX_RETRIES})")
         return "multi_analyst"
 
-    print(f"  [Router]    max retries reached — writing partial spec")
+    log("router", "max retries reached — writing partial spec")
     return "writer"
 
 
