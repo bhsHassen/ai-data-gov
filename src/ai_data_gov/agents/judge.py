@@ -92,3 +92,72 @@ Verify both drafts against the source artifacts and produce the superior final s
     )
 
     return response.choices[0].message.content.strip()
+
+
+SELF_REVIEW_PROMPT = """You are a senior data governance expert reviewing your own specification before publication.
+
+You have produced a first version of a data flow specification.
+You also have the original source artifacts (source code, DDL, documentation) to verify against.
+
+## YOUR TASK — SELF-REVIEW AND IMPROVEMENT
+
+Go through each section and ask yourself:
+1. **Precision**: Are field names, table names and business rules exact? Can any vague description be made more specific using the source artifacts?
+2. **Confidence**: Are there any 🟡 MEDIUM or 🔴 LOW entries that can be upgraded to 🟢 HIGH after re-reading the source?
+3. **Gaps**: Did you miss any business-meaningful field or transformation present in the source?
+4. **Clarity**: Would a business reader clearly understand Section 1 and Section 5? If not, rewrite those parts.
+5. **Honesty**: Is there any invented information that should be replaced with `[INFORMATION NOT FOUND — source required]`?
+
+## RULES
+- Only improve — do not remove correct information already present
+- Do not add redundancy between sections
+- Keep the same format and structure
+- If a section is already perfect, keep it as-is — do not change for the sake of changing
+
+## OUTPUT
+Return the complete improved specification with all 7 sections.
+"""
+
+
+def self_review(
+    flow_name: str,
+    raw_context: str,
+    spec_draft: str,
+    location: str | None = None,
+) -> str:
+    """
+    Self-review pass — the Judge reviews and improves its own spec.
+
+    Args:
+        flow_name:    Name of the flow.
+        raw_context:  Original source artifacts (ground truth).
+        spec_draft:   The spec produced by the judge() call.
+        location:     Optional location context.
+
+    Returns:
+        Improved spec as Markdown string.
+    """
+    loc_note = f" — Location: {location}" if location else ""
+
+    user_content = f"""Flow: {flow_name}{loc_note}
+
+=== SOURCE ARTIFACTS (ground truth) ===
+{raw_context}
+
+=== YOUR CURRENT SPECIFICATION ===
+{spec_draft}
+
+Review your specification against the source artifacts and return the improved version.
+"""
+
+    client = build_client()
+    response = client.chat.completions.create(
+        model=get_model("judge"),
+        messages=[
+            {"role": "system", "content": SELF_REVIEW_PROMPT},
+            {"role": "user",   "content": user_content},
+        ],
+        temperature=0.1,
+    )
+
+    return response.choices[0].message.content.strip()

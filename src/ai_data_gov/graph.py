@@ -2,9 +2,9 @@
 LangGraph pipeline — AI Flow Documentation POC.
 
 Pipeline:
-  START → collector → multi_analyst → judge → validator → writer → END
-                                                  ↑           |
-                                                  └── retry ──┘ (max 3)
+  START → collector → multi_analyst → judge → self_review → validator → writer → END
+                             ↑                                    |
+                             └────────────── retry ───────────────┘ (max 3)
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from langgraph.graph import StateGraph, END
 from src.ai_data_gov.state import FlowState
 from src.ai_data_gov.agents.collector import collect
 from src.ai_data_gov.agents.analyst import analyze
-from src.ai_data_gov.agents.judge import judge
+from src.ai_data_gov.agents.judge import judge, self_review
 from src.ai_data_gov.agents.validator import validate
 from src.ai_data_gov.agents.writer import write
 from src.ai_data_gov.llm import get_model
@@ -176,8 +176,23 @@ def judge_node(state: FlowState) -> dict:
         location=state.get("location"),
     )
 
-    log("judge", f"final spec ({len(final_spec)} chars)")
+    log("judge", f"first draft ({len(final_spec)} chars)")
     return {"spec_draft": final_spec}
+
+
+def self_review_node(state: FlowState) -> dict:
+    """Judge reviews and improves its own spec against the source artifacts."""
+    log("judge", "self-review — improving spec against source artifacts")
+
+    improved = self_review(
+        flow_name=state["flow_name"],
+        raw_context=state["raw_context"],
+        spec_draft=state["spec_draft"],
+        location=state.get("location"),
+    )
+
+    log("judge", f"improved spec ({len(improved)} chars)")
+    return {"spec_draft": improved}
 
 
 def validator_node(state: FlowState) -> dict:
@@ -241,6 +256,7 @@ def build_graph() -> StateGraph:
     graph.add_node("collector",      collector_node)
     graph.add_node("multi_analyst",  multi_analyst_node)
     graph.add_node("judge",          judge_node)
+    graph.add_node("self_review",    self_review_node)
     graph.add_node("validator",      validator_node)
     graph.add_node("writer",         writer_node)
 
@@ -248,7 +264,8 @@ def build_graph() -> StateGraph:
 
     graph.add_edge("collector",     "multi_analyst")
     graph.add_edge("multi_analyst", "judge")
-    graph.add_edge("judge",         "validator")
+    graph.add_edge("judge",         "self_review")
+    graph.add_edge("self_review",   "validator")
     graph.add_conditional_edges(
         "validator",
         route_after_validator,
