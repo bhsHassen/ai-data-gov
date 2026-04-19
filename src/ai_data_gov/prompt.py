@@ -9,15 +9,16 @@ Your task: analyze source code, DDL files and existing documentation, then produ
 
 This spec will be read by two audiences:
 - **Business readers**: need to understand what the flow does, why it exists, and what data it handles
-- **Developers**: need precise field specs (name, type, length, offset) to implement or migrate the flow
+- **Developers**: need precise field specs to implement or migrate the flow
 
-Write each section so that BOTH audiences can use it directly.
-- Start with a plain-language explanation (2-3 sentences max)
+Write each section so that BOTH audiences can use it directly:
+- Start with a plain-language description (2-3 sentences max)
 - Follow with precise technical details in table format
+- **Do not repeat information already stated in a previous section**
 
 ---
 
-## CONFIDENCE SCORING — MANDATORY ON EVERY FIELD AND TRANSFORMATION
+## CONFIDENCE SCORING — APPLIES TO SECTIONS 2 AND 3 ONLY
 
 | Level | When to use |
 |-------|-------------|
@@ -42,8 +43,7 @@ Focus only on business-meaningful fields specific to this flow.
 ## THE 7 SECTIONS
 
 ## 1. Overview
-Plain language description (2-3 sentences): what does this flow do, why does it exist, who benefits?
-Follow with a summary table:
+Plain language (2-3 sentences): what does this flow do, why does it exist, who benefits?
 
 | Attribute | Value |
 |-----------|-------|
@@ -56,12 +56,12 @@ Follow with a summary table:
 ---
 
 ## 2. Source
-Brief plain-language description of the source data.
+Brief description of the source data in plain language.
 
 | Table | Field | Type | Length | Offset | Business Meaning | Confidence |
 |-------|-------|------|--------|--------|-----------------|------------|
 
-> Use `[NOT FOUND]` for Length/Offset if not in DDL.
+> Use `[NOT FOUND]` for Length/Offset if not available in DDL.
 
 ---
 
@@ -76,26 +76,24 @@ Brief description of the key business rules applied.
 ## 4. Target
 Brief description of where the data lands and how it will be used.
 
-| Target Table | Field | Type | Length | Offset | Populated From | Confidence |
-|-------------|-------|------|--------|--------|---------------|------------|
+| Target Table | Field | Populated From |
+|-------------|-------|---------------|
 
 ---
 
 ## 5. Lineage
-Tell the data journey in 2-3 plain-language sentences: where it comes from, what changes, where it ends up and what business decision it enables.
+2-3 sentences: where the data comes from, what changes happen, where it ends up, what business decision it enables.
 
-Then provide the lineage table:
-
-| Source Field | Transformation | Target Field | Business Impact | Confidence |
-|-------------|---------------|-------------|-----------------|------------|
+| Source Field | Transformation | Target Field | Business Impact |
+|-------------|---------------|-------------|-----------------|
 
 ---
 
 ## 6. Quality
-Brief description of main data quality risks and business impact.
+Brief description of main data quality risks and their business impact.
 
-| Check | Fields Concerned | Type | Action if Failed | Confidence |
-|-------|-----------------|------|-----------------|------------|
+| Check | Fields Concerned | Action if Failed |
+|-------|-----------------|-----------------|
 
 ---
 
@@ -104,8 +102,8 @@ Brief description of the overall processing for business readers.
 
 Implementation guidelines for developers — **no source code**:
 
-**Reader**: what to read, from which table, filters, expected volume
-**Processor**: business rules to implement (reference Section 3), validations (reference Section 6), enrichment steps
+**Reader**: what to read, from which table/file, filters, expected volume
+**Processor**: business rules to implement (see Section 3), validations (see Section 6), enrichment steps
 **Writer**: target table, commit interval strategy, error handling approach
 
 ---
@@ -114,8 +112,8 @@ Implementation guidelines for developers — **no source code**:
 1. **Never invent** — write `[INFORMATION NOT FOUND — source required]` when data is missing
 2. **Be specific** — use exact field names, table names and class names from the artifacts
 3. **No raw code** — describe what code does, not how it is written
-4. **Confluence-ready** — Markdown tables, **bold**, bullet points; no HTML
-5. **Every field and transformation needs a confidence level** — no exceptions
+4. **No redundancy** — do not repeat information already covered in a previous section
+5. **Confluence-ready** — Markdown tables, **bold**, bullet points; no HTML
 """
 
 
@@ -128,5 +126,5 @@ def build_user_prompt(flow_name: str, raw_context: str, location: str | None = N
 
 {raw_context}
 
-Generate all 7 sections. Extract Length and Offset from DDL definitions where available.
+Generate all 7 sections. Extract Length and Offset from DDL definitions for Section 2 only.
 """

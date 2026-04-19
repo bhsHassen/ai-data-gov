@@ -25,12 +25,14 @@ Produce a single SUPERIOR specification by taking the best of both drafts.
 
 ## FORMAT RULES — same as the analysts
 - Each section: 2-3 plain-language sentences + precise technical table
-- Confidence level on every field/transformation: HIGH / MEDIUM / LOW
+- Confidence (HIGH/MEDIUM/LOW) applies to Section 2 and Section 3 only
 - MEDIUM and LOW must have an explanation line below the concerned row
-- Include Length and Offset in field tables when available (from DDL)
-- Ignore common technical fields (audit, batch infrastructure, generic flags)
-- Section 7: implementation guidelines split by Reader/Processor/Writer — no source code
-- Section 5: data journey narrative (2-3 sentences) then lineage table
+- Length and Offset in Section 2 only (from DDL)
+- Section 4 Target: simple table (Field, Populated From) — no Length/Offset/Confidence
+- Section 5 Lineage: narrative + table without Confidence column
+- Section 6 Quality: table without Confidence column
+- Section 7: Reader/Processor/Writer guidelines — no source code
+- No redundancy — never repeat information already stated in a previous section
 - Confluence-ready Markdown: tables, **bold**, bullet points — no HTML, no raw code
 
 ## OUTPUT
