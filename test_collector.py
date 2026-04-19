@@ -26,7 +26,7 @@ location  = sys.argv[2] if len(sys.argv) > 2 else None
 label = f"{flow_name}" + (f" [{location}]" if location else "")
 print(f"Collecting context for: {label}\n")
 
-output = collect(flow_name=flow_name, location=location)
+output = collect(flow_name=flow_name)
 
 if output.errors:
     print("ERRORS:")

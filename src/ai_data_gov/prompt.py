@@ -1,6 +1,7 @@
 """
 Analyst prompt — instructs Qwen3 to generate a flow spec with 7 sections.
 """
+from __future__ import annotations
 
 SYSTEM_PROMPT = """You are an expert data governance analyst specializing in legacy Java batch processing systems.
 
