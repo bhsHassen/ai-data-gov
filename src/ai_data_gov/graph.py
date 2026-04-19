@@ -2,18 +2,22 @@
 LangGraph pipeline — AI Flow Documentation POC.
 
 Pipeline:
-  START → collector → analyst → validator → writer → END
-                          ↑          |
-                          └── retry ─┘ (max 3 attempts)
+  START → collector → multi_analyst → judge → validator → writer → END
+                                                  ↑           |
+                                                  └── retry ──┘ (max 3)
 """
+from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from langgraph.graph import StateGraph, END
 
 from src.ai_data_gov.state import FlowState
 from src.ai_data_gov.agents.collector import collect
 from src.ai_data_gov.agents.analyst import analyze
+from src.ai_data_gov.agents.judge import judge
+from src.ai_data_gov.llm import get_model
 
 
 MAX_RETRIES = 3
@@ -115,26 +119,64 @@ def collector_node(state: FlowState) -> dict:
     return {**counts, "raw_context": raw_context}
 
 
-def analyst_node(state: FlowState) -> dict:
-    """Calls Qwen3 to generate the flow spec from raw context."""
-    attempt   = state.get("retry_count", 0) + 1
+def multi_analyst_node(state: FlowState) -> dict:
+    """Runs Analyst 1 (Qwen3) and Analyst 2 (Codestral) in parallel."""
     flow_name = state["flow_name"]
-    print(f"  [Analyst]   generating spec (attempt {attempt}/{MAX_RETRIES})")
+    location  = state.get("location")
+    attempt   = state.get("retry_count", 0) + 1
 
-    spec_draft = analyze(
-        flow_name=flow_name,
-        raw_context=state["raw_context"],
-        location=state.get("location"),
-        validation_errors=state.get("validation_errors"),
-        attempt=attempt,
-    )
+    model1 = get_model("analyst1")
+    model2 = get_model("analyst2")
+    print(f"  [Analysts]  running {model1} + {model2} in parallel (attempt {attempt}/{MAX_RETRIES})")
 
-    print(f"  [Analyst]   spec generated ({len(spec_draft)} chars)")
+    drafts: dict = {}
+
+    def run_analyst(role: str) -> tuple[str, str]:
+        draft = analyze(
+            flow_name=flow_name,
+            raw_context=state["raw_context"],
+            model_role=role,
+            location=location,
+            validation_errors=state.get("validation_errors"),
+            attempt=attempt,
+        )
+        return role, draft
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {executor.submit(run_analyst, role): role for role in ["analyst1", "analyst2"]}
+        for future in as_completed(futures):
+            role, draft = future.result()
+            model_name   = get_model(role)
+            drafts[model_name] = draft
+            print(f"  [Analysts]  {model_name} done ({len(draft)} chars)")
 
     return {
-        "spec_draft":  spec_draft,
+        "spec_drafts": drafts,
         "retry_count": attempt,
     }
+
+
+def judge_node(state: FlowState) -> dict:
+    """GPT OSS 120B synthesizes the best spec from both analyst drafts."""
+    flow_name = state["flow_name"]
+    drafts    = state.get("spec_drafts", {})
+    model_judge = get_model("judge")
+
+    print(f"  [Judge]     synthesizing with {model_judge}")
+
+    draft_list = list(drafts.values())
+    draft1 = draft_list[0] if len(draft_list) > 0 else ""
+    draft2 = draft_list[1] if len(draft_list) > 1 else draft1
+
+    final_spec = judge(
+        flow_name=flow_name,
+        draft_analyst1=draft1,
+        draft_analyst2=draft2,
+        location=state.get("location"),
+    )
+
+    print(f"  [Judge]     final spec ({len(final_spec)} chars)")
+    return {"spec_draft": final_spec}
 
 
 def validator_node(state: FlowState) -> dict:
@@ -209,7 +251,7 @@ def route_after_validator(state: FlowState) -> str:
     retry_count = state.get("retry_count", 0)
     if retry_count < MAX_RETRIES:
         print(f"  [Router]    validation failed — retrying ({retry_count}/{MAX_RETRIES})")
-        return "analyst"
+        return "multi_analyst"
 
     print(f"  [Router]    max retries reached — writing partial spec")
     return "writer"
@@ -222,19 +264,21 @@ def route_after_validator(state: FlowState) -> str:
 def build_graph() -> StateGraph:
     graph = StateGraph(FlowState)
 
-    graph.add_node("collector", collector_node)
-    graph.add_node("analyst",   analyst_node)
-    graph.add_node("validator", validator_node)
-    graph.add_node("writer",    writer_node)
+    graph.add_node("collector",      collector_node)
+    graph.add_node("multi_analyst",  multi_analyst_node)
+    graph.add_node("judge",          judge_node)
+    graph.add_node("validator",      validator_node)
+    graph.add_node("writer",         writer_node)
 
     graph.set_entry_point("collector")
 
-    graph.add_edge("collector", "analyst")
-    graph.add_edge("analyst",   "validator")
+    graph.add_edge("collector",     "multi_analyst")
+    graph.add_edge("multi_analyst", "judge")
+    graph.add_edge("judge",         "validator")
     graph.add_conditional_edges(
         "validator",
         route_after_validator,
-        {"analyst": "analyst", "writer": "writer"},
+        {"multi_analyst": "multi_analyst", "writer": "writer"},
     )
     graph.add_edge("writer", END)
 

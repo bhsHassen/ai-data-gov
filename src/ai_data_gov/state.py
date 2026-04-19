@@ -2,6 +2,7 @@
 Shared state flowing through the LangGraph pipeline.
 Every agent reads from and writes to this state.
 """
+from __future__ import annotations
 
 from typing import TypedDict, Optional
 
@@ -18,7 +19,8 @@ class FlowState(TypedDict):
     raw_context: str                # full text context passed to Analyst
 
     # Analyst output
-    spec_draft: str                 # generated spec (Markdown)
+    spec_drafts: dict               # {model_name: draft} from each analyst
+    spec_draft: str                 # final spec after judge synthesis
 
     # Validator output
     validation_ok: bool             # True if all 7 sections present

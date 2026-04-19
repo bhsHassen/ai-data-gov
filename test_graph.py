@@ -30,6 +30,7 @@ initial_state = {
     "ddl_files_count":    0,
     "doc_files_count":    0,
     "raw_context":        "",
+    "spec_drafts":        {},
     "spec_draft":         "",
     "validation_ok":      False,
     "validation_errors":  [],

@@ -5,6 +5,7 @@ Receives the initial context from the Collector.
 If more files are needed, uses the get_file tool to fetch them.
 Produces a structured Markdown spec with 7 sections.
 """
+from __future__ import annotations
 
 import json
 from src.ai_data_gov.llm import build_client, get_model
@@ -39,6 +40,7 @@ GET_FILE_TOOL = {
 def analyze(
     flow_name: str,
     raw_context: str,
+    model_role: str = "analyst1",
     location: str | None = None,
     validation_errors: list[str] | None = None,
     attempt: int = 1,
@@ -59,7 +61,7 @@ def analyze(
         spec_draft: Markdown string with 7 sections.
     """
     client = build_client()
-    model  = get_model()
+    model  = get_model(model_role)
 
     user_content = build_user_prompt(flow_name, raw_context, location)
 
