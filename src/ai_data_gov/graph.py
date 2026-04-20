@@ -18,7 +18,7 @@ from src.ai_data_gov.agents.judge import judge, self_review
 from src.ai_data_gov.agents.validator import validate
 from src.ai_data_gov.agents.writer import write
 from src.ai_data_gov.llm import get_model
-from src.ai_data_gov.console import log
+from src.ai_data_gov.console import log, emit_event
 
 
 MAX_RETRIES = 3
@@ -108,13 +108,17 @@ def collector_node(state: FlowState) -> dict:
     flow_name = state["flow_name"]
     location  = state.get("location")
     loc_label = f" [{location}]" if location else ""
+
+    emit_event({"type": "stage_start", "stage": "collector"})
     log("collector", f"collecting context for: {flow_name}{loc_label}")
 
     counts, raw_context = _build_raw_context(flow_name, location)
 
-    log("collector", f"{counts['source_files_count']} source, "
-                     f"{counts['ddl_files_count']} ddl, "
-                     f"{counts['doc_files_count']} doc file(s)")
+    detail = (f"{counts['source_files_count']} source · "
+              f"{counts['ddl_files_count']} DDL · "
+              f"{counts['doc_files_count']} doc")
+    log("collector", detail + " file(s)")
+    emit_event({"type": "stage_done", "stage": "collector", "detail": detail})
 
     return {**counts, "raw_context": raw_context}
 
@@ -127,6 +131,8 @@ def multi_analyst_node(state: FlowState) -> dict:
 
     model1 = get_model("analyst1")
     model2 = get_model("analyst2")
+    emit_event({"type": "stage_start", "stage": "analyst",
+                "detail": f"{model1} + {model2}  ·  attempt {attempt}/{MAX_RETRIES}"})
     log("analyst", f"running {model1} + {model2} in parallel (attempt {attempt}/{MAX_RETRIES})")
 
     drafts: dict = {}
@@ -150,6 +156,8 @@ def multi_analyst_node(state: FlowState) -> dict:
             drafts[model_name] = draft
             log("analyst", f"{model_name} done ({len(draft)} chars)")
 
+    sizes = " · ".join(f"{m}: {len(d):,} chars" for m, d in drafts.items())
+    emit_event({"type": "stage_done", "stage": "analyst", "detail": sizes})
     return {
         "spec_drafts": drafts,
         "retry_count": attempt,
@@ -162,6 +170,7 @@ def judge_node(state: FlowState) -> dict:
     drafts    = state.get("spec_drafts", {})
     model_judge = get_model("judge")
 
+    emit_event({"type": "stage_start", "stage": "judge", "detail": model_judge})
     log("judge", f"synthesizing with {model_judge}")
 
     draft_list = list(drafts.values())
@@ -177,11 +186,14 @@ def judge_node(state: FlowState) -> dict:
     )
 
     log("judge", f"first draft ({len(final_spec)} chars)")
+    emit_event({"type": "stage_done", "stage": "judge",
+                "detail": f"{len(final_spec):,} chars"})
     return {"spec_draft": final_spec}
 
 
 def self_review_node(state: FlowState) -> dict:
     """Judge reviews and improves its own spec against the source artifacts."""
+    emit_event({"type": "stage_start", "stage": "self_review"})
     log("judge", "self-review — improving spec against source artifacts")
 
     improved = self_review(
@@ -192,11 +204,14 @@ def self_review_node(state: FlowState) -> dict:
     )
 
     log("judge", f"improved spec ({len(improved)} chars)")
+    emit_event({"type": "stage_done", "stage": "self_review",
+                "detail": f"{len(improved):,} chars"})
     return {"spec_draft": improved}
 
 
 def validator_node(state: FlowState) -> dict:
     """Checks that all 7 required sections are present in spec_draft."""
+    emit_event({"type": "stage_start", "stage": "validator"})
     log("validator", "checking spec completeness")
 
     ok, missing = validate(state.get("spec_draft", ""))
@@ -206,6 +221,9 @@ def validator_node(state: FlowState) -> dict:
     else:
         log("validator", "all 7 sections present ✓")
 
+    detail = "all 7 sections ✓" if ok else f"missing: {', '.join(missing)}"
+    emit_event({"type": "stage_done", "stage": "validator",
+                "detail": detail, "ok": ok})
     return {
         "validation_ok":     ok,
         "validation_errors": missing,
@@ -215,6 +233,7 @@ def validator_node(state: FlowState) -> dict:
 def writer_node(state: FlowState) -> dict:
     """Writes the final spec to output/ as a Markdown file."""
     status = "complete" if state.get("validation_ok") else "partial"
+    emit_event({"type": "stage_start", "stage": "writer"})
     log("writer", f"writing {status} spec")
 
     output_path = write(
@@ -226,6 +245,9 @@ def writer_node(state: FlowState) -> dict:
     )
 
     log("writer", f"saved → {output_path}")
+    emit_event({"type": "stage_done", "stage": "writer", "detail": str(output_path)})
+    emit_event({"type": "pipeline_complete", "output_path": str(output_path),
+                "validation_ok": state.get("validation_ok", False)})
     return {"output_path": output_path}
 
 
@@ -247,6 +269,7 @@ def route_after_validator(state: FlowState) -> str:
     retry_count = state.get("retry_count", 0)
     if retry_count < MAX_RETRIES:
         log("router", f"validation failed — retrying ({retry_count}/{MAX_RETRIES})")
+        emit_event({"type": "retry", "retry_count": retry_count, "max": MAX_RETRIES})
         return "multi_analyst"
 
     log("router", "max retries reached — writing partial spec")
