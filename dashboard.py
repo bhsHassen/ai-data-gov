@@ -485,27 +485,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
     </div>
   </div>
 
-  <!-- Previous specs -->
+  <!-- Previous specs — loaded via JS -->
   <div class="specs-card">
     <div class="specs-title">Previous Specifications</div>
-    <div id="specs-list">
-      {% if specs %}
-        {% for s in specs %}
-        <div class="spec-row">
-          <div>
-            <div class="spec-name">{{ s.title }}</div>
-            <div class="spec-meta">{{ s.size }} KB · {{ s.mtime }}</div>
-          </div>
-          <div class="spec-actions">
-            <a href="/spec/{{ s.filename }}" class="a-open" target="_blank">Open →</a>
-            <a href="/print/{{ s.filename }}" class="a-pdf" target="_blank">⬇ PDF</a>
-          </div>
-        </div>
-        {% endfor %}
-      {% else %}
-        <div class="empty-specs">No specs yet — run the pipeline above.</div>
-      {% endif %}
-    </div>
+    <div id="specs-list"><div class="empty-specs">Loading…</div></div>
   </div>
 
 </div><!-- /page -->
@@ -515,7 +498,33 @@ const STAGE_ORDER = ["collector","analyst","judge","self_review","validator","wr
 let _evtSource = null;
 let _startTime = null;
 let _timerInterval = null;
-let _lastStage = null;
+
+// ── Load specs list from API ─────────────────────────────────────────────────
+function loadSpecs(){
+  fetch("/api/specs")
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById("specs-list");
+      if(!data.specs || data.specs.length === 0){
+        el.innerHTML = '<div class="empty-specs">No specs yet — run the pipeline above.</div>';
+        return;
+      }
+      el.innerHTML = data.specs.map(s =>
+        '<div class="spec-row">' +
+          '<div>' +
+            '<div class="spec-name">' + escHtml(s.title) + '</div>' +
+            '<div class="spec-meta">' + s.size + ' KB · ' + s.mtime + '</div>' +
+          '</div>' +
+          '<div class="spec-actions">' +
+            '<a href="/spec/' + s.filename + '" class="a-open" target="_blank">Open →</a>' +
+            '<a href="/print/' + s.filename + '" class="a-pdf" target="_blank">⬇ PDF</a>' +
+          '</div>' +
+        '</div>'
+      ).join('');
+    })
+    .catch(() => {});
+}
+document.addEventListener("DOMContentLoaded", loadSpecs);
 
 // Toggle label
 document.getElementById("chk-selfreview").addEventListener("change", function(){
@@ -584,6 +593,7 @@ function showResult(outputPath, ok){
   btnV.href = specUrl;
   btnP.href = pdfUrl;
   card.style.display = "flex";
+  loadSpecs();   // refresh specs list
 
   document.getElementById("btn-run").disabled = false;
 }
@@ -827,7 +837,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 
 @app.route("/")
 def index():
-    return render_template_string(DASHBOARD_HTML, specs=_list_specs())
+    # Return raw HTML — bypass Jinja2 entirely (JS loads specs via /api/specs)
+    from flask import Response as _R
+    return _R(DASHBOARD_HTML, mimetype="text/html")
+
+
+@app.route("/api/specs")
+def api_specs():
+    return {"specs": _list_specs()}
 
 
 @app.route("/api/run", methods=["POST"])
