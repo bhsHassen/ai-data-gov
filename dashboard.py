@@ -134,51 +134,42 @@ def _load_md(filename: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _CONTENT_CSS = """
-    h1{font-size:26px;font-weight:700;border-bottom:2px solid #334155;
-       padding-bottom:14px;margin-bottom:28px;color:#e2e8f0}
-    h2{font-size:18px;font-weight:700;margin:36px 0 12px;padding-left:10px;
-       border-left:4px solid #0052cc;color:#e2e8f0}
-    h3{font-size:14px;font-weight:600;margin:20px 0 8px;color:#cbd5e1}
-    p{font-size:14px;line-height:1.7;color:#cbd5e1;margin-bottom:12px}
-    ul,ol{font-size:14px;line-height:1.7;margin:8px 0 12px 22px;color:#cbd5e1}
-    table{width:100%;border-collapse:collapse;font-size:13px;margin:14px 0 20px}
-    thead th{background:#1e3a5f;color:#93c5fd;font-weight:600;text-align:left;
-             padding:9px 12px;border:1px solid #334155;white-space:nowrap}
-    tbody td{padding:8px 12px;border:1px solid #334155;vertical-align:top;
-             line-height:1.5;color:#cbd5e1}
-    tbody tr:nth-child(even){background:#1a2744}
-    tbody tr:hover{background:#1e3a5f}
-    blockquote{border-left:3px solid #eab308;background:#2d2a1a;
-               padding:8px 14px;margin:4px 0 12px;border-radius:0 4px 4px 0;
-               font-size:13px;color:#fde68a}
-    code{background:#1e293b;border:1px solid #334155;border-radius:3px;
-         font-family:"SFMono-Regular",Consolas,monospace;font-size:12px;
-         padding:1px 5px;color:#7dd3fc}
-    hr{border:none;border-top:1px solid #334155;margin:28px 0}
+    h1{font-size:22px;font-weight:bold;border-bottom:2px solid #ccc;
+       padding-bottom:10px;margin-bottom:20px;color:#111}
+    h2{font-size:16px;font-weight:bold;margin:28px 0 10px;
+       border-left:3px solid #0052cc;padding-left:8px;color:#111}
+    h3{font-size:14px;font-weight:bold;margin:16px 0 6px;color:#222}
+    p{font-size:13px;line-height:1.7;color:#333;margin-bottom:10px}
+    ul,ol{font-size:13px;line-height:1.7;margin:6px 0 10px 20px;color:#333}
+    table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0 16px}
+    thead th{background:#f0f0f0;color:#222;font-weight:bold;text-align:left;
+             padding:7px 10px;border:1px solid #ccc}
+    tbody td{padding:6px 10px;border:1px solid #ddd;vertical-align:top;
+             line-height:1.5;color:#333}
+    tbody tr:nth-child(even){background:#fafafa}
+    blockquote{border-left:3px solid #e6a817;background:#fffdf0;
+               padding:6px 12px;margin:4px 0 10px;font-size:12px;color:#555}
+    code{background:#f5f5f5;border:1px solid #ddd;
+         font-family:Consolas,monospace;font-size:12px;padding:1px 4px;color:#333}
+    hr{border:none;border-top:1px solid #ddd;margin:20px 0}
     td{word-break:break-word}
 """
 
 _PRINT_CSS = """
     @media print{
-      .topbar,.sidebar,.btn-pdf,.print-banner{display:none!important}
+      .bar,.sidebar,.btn-pdf,.print-banner{display:none!important}
       .layout{display:block}
       body{background:#fff;color:#000;padding:0}
       .content{padding:0;max-width:100%}
       *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
       @page{size:A4;margin:18mm 15mm}
-      h1{color:#000;border-bottom:2pt solid #ddd;font-size:18pt}
-      h2{page-break-before:always;break-before:page;color:#000;font-size:13pt;
-         border-left:4px solid #0052cc;padding-left:8px;margin-top:0}
+      h1{font-size:18pt;border-bottom:1pt solid #ccc}
+      h2{page-break-before:always;break-before:page;font-size:13pt;margin-top:0}
       h2:first-of-type{page-break-before:avoid;break-before:avoid}
       table{page-break-inside:avoid;font-size:9pt}
-      thead th{background:#eee!important;color:#000!important}
-      tbody td{color:#000!important;border-color:#ccc!important}
+      thead th{background:#eee!important}
       tbody tr:nth-child(even){background:#f9f9f9!important}
       tbody tr:hover{background:transparent!important}
-      blockquote{background:#fffae6!important;color:#333!important;
-                 border-left:3px solid #ffab00!important}
-      p,li{color:#000}
-      h3{color:#000}
     }
 """
 
@@ -585,51 +576,42 @@ SPEC_TEMPLATE = """<!DOCTYPE html>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ title }}</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-     background:#0f172a;color:#e2e8f0}
-.topbar{background:#0a1628;border-bottom:1px solid #1e3a5f;padding:12px 28px;
-        display:flex;align-items:center;justify-content:space-between}
-.topbar-left{display:flex;align-items:center;gap:10px}
-.topbar-left svg{width:22px;height:22px}
-.topbar-left span{font-size:15px;font-weight:600}
-.topbar-right{display:flex;gap:8px}
-.topbar-right a,.btn-pdf{color:#e2e8f0;font-size:12px;text-decoration:none;
-  border:1px solid #334155;border-radius:4px;padding:5px 14px;
-  background:transparent;cursor:pointer;font-family:inherit;transition:all .15s}
-.topbar-right a:hover,.btn-pdf:hover{background:#1e293b}
-.layout{display:flex;min-height:calc(100vh - 48px)}
-.sidebar{width:220px;flex-shrink:0;background:#0a1628;border-right:1px solid #1e3a5f;
-         padding:20px 14px;position:sticky;top:0;height:calc(100vh - 48px);overflow-y:auto}
-.sidebar h3{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
-            color:#475569;margin-bottom:10px}
-.sidebar ul{list-style:none}
-.sidebar li{margin-bottom:3px}
-.sidebar a{display:block;font-size:12px;color:#94a3b8;text-decoration:none;
-           padding:5px 10px;border-radius:4px;transition:all .15s}
-.sidebar a:hover{background:#1e293b;color:#60a5fa}
-.content{flex:1;padding:36px 52px 60px;max-width:1020px}
-""" + _CONTENT_CSS + _PRINT_CSS + """
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;background:#f5f5f5;color:#222;font-size:14px}
+  .bar{background:#0052cc;color:#fff;padding:9px 16px;display:flex;
+       align-items:center;justify-content:space-between;font-size:13px}
+  .bar strong{font-size:14px;font-weight:bold}
+  .bar a,.bar button{color:#fff;font-size:12px;text-decoration:none;
+    border:1px solid rgba(255,255,255,.5);padding:4px 12px;background:transparent;
+    cursor:pointer;font-family:inherit;margin-left:8px}
+  .bar a:hover,.bar button:hover{background:rgba(255,255,255,.15)}
+  .layout{display:flex;min-height:calc(100vh - 38px)}
+  .sidebar{width:200px;flex-shrink:0;background:#fff;border-right:1px solid #ddd;
+           padding:16px 12px;position:sticky;top:0;height:calc(100vh - 38px);
+           overflow-y:auto}
+  .sidebar p{font-size:11px;color:#888;text-transform:uppercase;
+             margin-bottom:8px;font-weight:bold}
+  .sidebar ul{list-style:none}
+  .sidebar li{margin-bottom:2px}
+  .sidebar a{display:block;font-size:12px;color:#444;text-decoration:none;
+             padding:3px 6px}
+  .sidebar a:hover{color:#0052cc;text-decoration:underline}
+  .content{flex:1;padding:28px 40px 60px;max-width:900px;background:#fff;
+           border-left:1px solid #eee}
+  """ + _CONTENT_CSS + _PRINT_CSS + """
 </style>
 </head>
 <body>
-<div class="topbar">
-  <div class="topbar-left">
-    <svg viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="6" fill="#0052cc"/>
-      <path d="M8 22l4-8 4 5 4-9 4 12" stroke="#fff" stroke-width="2.2"
-            stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <span>{{ title }}</span>
-  </div>
-  <div class="topbar-right">
-    <button class="btn-pdf" onclick="window.open('/print/{{ filename }}','_blank')">
-      ⬇ Export PDF
-    </button>
-    <a href="/">← Dashboard</a>
+<div class="bar">
+  <strong>{{ title }}</strong>
+  <div>
+    <button onclick="window.open('/print/{{ filename }}','_blank')">Export PDF</button>
+    <a href="/">&#8592; Dashboard</a>
   </div>
 </div>
 <div class="layout">
   <nav class="sidebar">
-    <h3>Contents</h3>
+    <p>Contents</p>
     <ul>{% for item in toc %}
       <li><a href="#{{ item.anchor }}">{{ item.label }}</a></li>
     {% endfor %}</ul>
@@ -644,51 +626,41 @@ PRINT_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8"><title>{{ title }}</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-     background:#0f172a;color:#e2e8f0;padding:32px 48px}
-.print-banner{background:#0052cc;color:#fff;padding:12px 20px;
-              margin:-32px -48px 32px;display:flex;align-items:center;
-              justify-content:space-between;font-size:13px}
-.print-banner strong{font-size:14px}
-.print-banner .actions{display:flex;gap:10px;align-items:center}
-.print-banner button{background:#fff;color:#0052cc;border:none;border-radius:3px;
-                     padding:6px 16px;font-size:13px;font-weight:600;cursor:pointer}
-.print-banner a{color:rgba(255,255,255,.75);font-size:12px;text-decoration:none}
-""" + _CONTENT_CSS + """
-@media print{
-  .print-banner{display:none!important}
-  body{background:#fff;color:#000;padding:0}
-  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  @page{size:A4;margin:18mm 15mm 18mm 15mm}
-  h1{color:#000;border-bottom:2pt solid #ddd;font-size:18pt}
-  h2{page-break-before:always;break-before:page;color:#000;font-size:13pt;
-     border-left:4px solid #0052cc;padding-left:8px;margin-top:0}
-  h2:first-of-type{page-break-before:avoid;break-before:avoid}
-  table{page-break-inside:avoid;font-size:9pt}
-  thead th{background:#eee!important;color:#000!important}
-  tbody td{color:#000!important;border-color:#ccc!important}
-  tbody tr:nth-child(even){background:#f9f9f9!important}
-  tbody tr:hover{background:transparent!important}
-  blockquote{background:#fffae6!important;color:#333!important;
-             border-left:3px solid #ffab00!important}
-  p,li,h3{color:#000}
-}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;background:#fff;color:#222;padding:24px 40px}
+  .print-bar{background:#0052cc;color:#fff;padding:9px 16px;
+             margin:-24px -40px 24px;display:flex;align-items:center;
+             justify-content:space-between;font-size:13px}
+  .print-bar button{background:#fff;color:#0052cc;border:none;padding:5px 14px;
+                    font-size:13px;font-weight:bold;cursor:pointer;font-family:inherit}
+  .print-bar a{color:rgba(255,255,255,.8);font-size:12px;text-decoration:none;margin-left:12px}
+  .print-bar a:hover{color:#fff}
+  """ + _CONTENT_CSS + """
+  @media print{
+    .print-bar{display:none!important}
+    body{padding:0}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    @page{size:A4;margin:18mm 15mm}
+    h2{page-break-before:always;break-before:page;margin-top:0}
+    h2:first-of-type{page-break-before:avoid;break-before:avoid}
+    table{page-break-inside:avoid;font-size:9pt}
+    thead th{background:#eee!important}
+    tbody tr:nth-child(even){background:#f9f9f9!important}
+    tbody tr:hover{background:transparent!important}
+  }
 </style>
 </head>
 <body>
-<div class="print-banner">
-  <div><strong>⬇ Export as PDF</strong>&nbsp;—&nbsp;
-    File › Print · Destination: <em>Save as PDF</em> · A4 · Enable "Background graphics"
-  </div>
-  <div class="actions">
-    <button onclick="window.print()">🖨 Print / Save as PDF</button>
-    <a href="/spec/{{ filename }}">← Back to viewer</a>
+<div class="print-bar">
+  <span>File &rsaquo; Print &mdash; Destination: <strong>Save as PDF</strong> &mdash; A4</span>
+  <div>
+    <button onclick="window.print()">Print / Save as PDF</button>
+    <a href="/spec/{{ filename }}">&#8592; Back</a>
   </div>
 </div>
 {{ body | safe }}
 <script>
-  window.addEventListener('load',()=>setTimeout(()=>window.print(),400));
+  window.addEventListener('load',function(){ setTimeout(function(){ window.print(); },400); });
 </script>
 </body></html>
 """
