@@ -191,304 +191,172 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI Data Gov — Dashboard</title>
+<title>AI Data Gov</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-     background:#0f172a;color:#e2e8f0;min-height:100vh}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;background:#f5f5f5;color:#222;font-size:14px}
+  a{color:#0052cc;text-decoration:none}
+  a:hover{text-decoration:underline}
 
-/* ── Topbar ── */
-.topbar{background:#0a1628;border-bottom:1px solid #1e3a5f;
-        padding:14px 32px;display:flex;align-items:center;justify-content:space-between}
-.topbar-brand{display:flex;align-items:center;gap:12px}
-.topbar-brand svg{width:28px;height:28px}
-.topbar-brand span{font-size:17px;font-weight:700;letter-spacing:-.01em}
-.topbar-brand small{font-size:12px;color:#64748b;margin-left:4px}
-.topbar-nav a{color:#94a3b8;font-size:13px;text-decoration:none;
-              padding:6px 14px;border-radius:4px;transition:all .15s}
-.topbar-nav a:hover{color:#e2e8f0;background:#1e293b}
+  .bar{background:#0052cc;color:#fff;padding:10px 20px;font-weight:bold;font-size:15px}
 
-/* ── Layout ── */
-.page{max-width:1100px;margin:0 auto;padding:32px 24px 60px}
+  .page{max-width:960px;margin:24px auto;padding:0 16px}
 
-/* ── Form card ── */
-.form-card{background:#1e293b;border:1px solid #334155;border-radius:10px;
-           padding:28px 32px;margin-bottom:32px}
-.form-card h2{font-size:16px;font-weight:600;color:#94a3b8;
-              text-transform:uppercase;letter-spacing:.06em;margin-bottom:20px}
-.form-row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end}
-.form-group{display:flex;flex-direction:column;gap:6px;flex:1;min-width:180px}
-.form-group label{font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;
-                  letter-spacing:.05em}
-.form-group input{background:#0f172a;border:1px solid #334155;color:#e2e8f0;
-                  border-radius:6px;padding:9px 14px;font-size:14px;outline:none;
-                  transition:border-color .15s;font-family:inherit}
-.form-group input:focus{border-color:#0052cc}
-.form-group input::placeholder{color:#475569}
+  /* form */
+  .box{background:#fff;border:1px solid #ccc;padding:18px 20px;margin-bottom:16px}
+  .box h3{font-size:13px;color:#555;margin-bottom:12px;text-transform:uppercase}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+  .fg{display:flex;flex-direction:column;gap:4px;flex:1;min-width:150px}
+  .fg label{font-size:12px;color:#555}
+  .fg input{border:1px solid #bbb;padding:7px 10px;font-size:14px;font-family:inherit;outline:none}
+  .fg input:focus{border-color:#0052cc}
+  .fg-check{display:flex;align-items:center;gap:8px;padding-bottom:8px}
+  .fg-check label{font-size:13px;color:#444}
+  button.run{background:#0052cc;color:#fff;border:none;padding:8px 22px;
+             font-size:14px;cursor:pointer;font-family:inherit}
+  button.run:hover{background:#003d99}
+  button.run:disabled{background:#aaa;cursor:not-allowed}
 
-.toggle-row{display:flex;align-items:center;gap:10px;padding-bottom:2px}
-.toggle-label{font-size:13px;color:#94a3b8}
-.toggle{position:relative;width:40px;height:22px;cursor:pointer}
-.toggle input{opacity:0;width:0;height:0}
-.toggle-track{position:absolute;inset:0;background:#334155;border-radius:11px;
-              transition:background .2s}
-.toggle input:checked~.toggle-track{background:#0052cc}
-.toggle-thumb{position:absolute;top:3px;left:3px;width:16px;height:16px;
-              background:#fff;border-radius:50%;transition:transform .2s}
-.toggle input:checked~.toggle-thumb{transform:translateX(18px)}
+  /* pipeline */
+  .pipe-row{display:flex;align-items:center;gap:0;overflow-x:auto;padding:4px 0 8px}
+  .pnode{text-align:center;padding:10px 6px;min-width:100px;border:1px solid #ccc;
+         background:#fafafa;font-size:12px;color:#999;transition:all .25s}
+  .pnode .ico{font-size:18px;margin-bottom:4px}
+  .pnode .nm{font-weight:bold;text-transform:uppercase;font-size:11px}
+  .pnode .dt{font-size:10px;color:#aaa;margin-top:3px;min-height:13px}
+  .pnode.running{border-color:#0052cc;background:#e8f0fe;color:#0052cc}
+  .pnode.running .nm{color:#0052cc}
+  .pnode.done{border-color:#2e7d32;background:#f1f8f1;color:#2e7d32}
+  .pnode.done .nm{color:#2e7d32}
+  .pnode.skipped{opacity:.4}
+  .pnode.error{border-color:#c62828;background:#fff0f0;color:#c62828}
+  .parrow{flex-shrink:0;padding:0 4px;color:#bbb;font-size:16px;line-height:1}
+  .parrow.active{color:#0052cc}
+  .parrow.done{color:#2e7d32}
+  .timer-row{font-size:12px;color:#888;margin-top:6px}
+  .timer-row b{color:#0052cc}
 
-.btn-run{background:#0052cc;color:#fff;border:none;border-radius:6px;
-         padding:10px 28px;font-size:14px;font-weight:600;cursor:pointer;
-         transition:background .15s;white-space:nowrap;font-family:inherit}
-.btn-run:hover{background:#0065ff}
-.btn-run:disabled{background:#1e3a5f;color:#475569;cursor:not-allowed}
+  /* log */
+  .log-box{background:#fff;border:1px solid #ccc;margin-bottom:16px}
+  .log-hdr{background:#eee;padding:7px 14px;font-size:12px;color:#555;
+           display:flex;justify-content:space-between;align-items:center}
+  .dot{width:8px;height:8px;border-radius:50%;background:#ccc;display:inline-block}
+  .dot.live{background:#2e7d32}
+  .log-body{height:200px;overflow-y:auto;padding:10px 14px;
+            font-family:Consolas,monospace;font-size:12px;line-height:1.6;background:#fff}
+  .ll{display:flex;gap:8px}
+  .la{font-weight:bold;min-width:72px;text-align:right;flex-shrink:0}
+  .lm{color:#555;word-break:break-word}
+  .la-collector{color:#1565c0}
+  .la-analyst{color:#2e7d32}
+  .la-judge{color:#e65100}
+  .la-validator{color:#6a1b9a}
+  .la-writer{color:#880e4f}
+  .la-router{color:#888}
+  .la-error{color:#c62828}
 
-/* ── Pipeline ── */
-.pipeline-card{background:#1e293b;border:1px solid #334155;border-radius:10px;
-               padding:28px 32px;margin-bottom:24px}
-.pipeline-title{font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;
-                letter-spacing:.06em;margin-bottom:24px}
-.pipeline-row{display:flex;align-items:center;gap:0;overflow-x:auto;padding-bottom:4px}
+  /* result */
+  .result-box{border:1px solid #ccc;padding:14px 18px;margin-bottom:16px;
+              display:none;background:#fff}
+  .result-box.ok{border-color:#2e7d32;background:#f1f8f1}
+  .result-box.partial{border-color:#e65100;background:#fff8f0}
+  .result-box h3{font-size:14px;font-weight:bold;margin-bottom:6px}
+  .result-box p{font-size:12px;color:#666;margin-bottom:10px}
+  .rbtn{display:inline-block;padding:7px 16px;font-size:13px;
+        border:1px solid #0052cc;color:#0052cc;margin-right:8px}
+  .rbtn:hover{background:#0052cc;color:#fff;text-decoration:none}
 
-/* ── Node ── */
-.p-node{display:flex;flex-direction:column;align-items:center;gap:6px;
-        min-width:110px;padding:16px 8px;border-radius:8px;
-        border:1px solid #334155;background:#0f172a;transition:all .3s;
-        position:relative;cursor:default}
-.p-node .pn-icon{font-size:22px;line-height:1}
-.p-node .pn-name{font-size:12px;font-weight:700;color:#94a3b8;text-align:center;
-                 text-transform:uppercase;letter-spacing:.04em}
-.p-node .pn-detail{font-size:10px;color:#475569;text-align:center;
-                   min-height:14px;max-width:100px;line-height:1.3;
-                   word-break:break-word}
-.p-node .pn-status{width:8px;height:8px;border-radius:50%;background:#334155;
-                   position:absolute;top:8px;right:8px}
-
-/* States */
-.p-node.running{border-color:#0052cc;background:#0d1f3c;
-                box-shadow:0 0 16px rgba(0,82,204,.35)}
-.p-node.running .pn-name{color:#60a5fa}
-.p-node.running .pn-status{background:#0052cc;
-  animation:pulse-dot 1.2s ease-in-out infinite}
-.p-node.done{border-color:#16a34a;background:#0d1f14}
-.p-node.done .pn-name{color:#4ade80}
-.p-node.done .pn-status{background:#22c55e}
-.p-node.skipped{opacity:.4}
-.p-node.skipped .pn-name{text-decoration:line-through}
-.p-node.error{border-color:#dc2626;background:#1f0d0d}
-.p-node.error .pn-name{color:#f87171}
-.p-node.error .pn-status{background:#ef4444}
-
-@keyframes pulse-dot{
-  0%,100%{box-shadow:0 0 0 0 rgba(0,82,204,.7)}
-  50%{box-shadow:0 0 0 5px rgba(0,82,204,0)}
-}
-
-/* ── Arrow ── */
-.p-arrow{flex-shrink:0;width:36px;display:flex;align-items:center;
-         justify-content:center;position:relative}
-.p-arrow::before{content:"";display:block;height:2px;width:100%;
-                 background:#334155;transition:background .4s}
-.p-arrow::after{content:"▶";font-size:9px;color:#334155;
-                position:absolute;right:-1px;transition:color .4s}
-.p-arrow.active::before{background:#0052cc}
-.p-arrow.active::after{color:#0052cc}
-.p-arrow.done::before{background:#16a34a}
-.p-arrow.done::after{color:#16a34a}
-
-/* ── Timer ── */
-.timer-bar{display:flex;align-items:center;gap:12px;margin-top:16px}
-.timer{font-size:12px;color:#475569;font-variant-numeric:tabular-nums}
-.timer span{color:#94a3b8;font-weight:600}
-.stage-label{font-size:12px;color:#0052cc;font-weight:500}
-
-/* ── Log terminal ── */
-.log-card{background:#0a0f1a;border:1px solid #1e293b;border-radius:10px;
-          padding:0;overflow:hidden;margin-bottom:24px}
-.log-header{background:#1e293b;padding:10px 20px;display:flex;
-            align-items:center;justify-content:space-between}
-.log-header span{font-size:12px;font-weight:600;color:#64748b;
-                 text-transform:uppercase;letter-spacing:.06em}
-.log-header .dot{width:10px;height:10px;border-radius:50%;background:#334155}
-.log-header .dot.live{background:#22c55e;animation:blink 1s step-start infinite}
-@keyframes blink{50%{opacity:0}}
-.log-body{height:240px;overflow-y:auto;padding:14px 20px;
-          font-family:"SFMono-Regular",Consolas,monospace;font-size:12px;
-          line-height:1.7;scroll-behavior:smooth}
-.log-line{display:flex;gap:10px;margin-bottom:1px}
-.log-agent{font-weight:700;min-width:78px;text-align:right;flex-shrink:0}
-.log-msg{color:#94a3b8;word-break:break-word}
-.agent-collector{color:#60a5fa}
-.agent-analyst{color:#34d399}
-.agent-judge{color:#fbbf24}
-.agent-validator{color:#a78bfa}
-.agent-writer{color:#f472b6}
-.agent-router{color:#6b7280}
-.agent-error{color:#f87171}
-
-/* ── Result banner ── */
-.result-card{border-radius:10px;padding:24px 32px;
-             display:flex;align-items:center;justify-content:space-between;
-             gap:16px;flex-wrap:wrap;margin-bottom:24px;display:none}
-.result-card.success{background:#0d2818;border:1px solid #16a34a}
-.result-card.partial{background:#2a1f0a;border:1px solid #d97706}
-.result-info h3{font-size:16px;font-weight:700;margin-bottom:4px}
-.result-card.success .result-info h3{color:#4ade80}
-.result-card.partial .result-info h3{color:#fbbf24}
-.result-info p{font-size:13px;color:#64748b}
-.result-actions{display:flex;gap:10px}
-.btn-view{background:#0052cc;color:#fff;text-decoration:none;border-radius:6px;
-          padding:9px 20px;font-size:13px;font-weight:600;transition:background .15s}
-.btn-view:hover{background:#0065ff}
-.btn-pdf{background:transparent;color:#7c3aed;border:1px solid #7c3aed;
-         text-decoration:none;border-radius:6px;padding:9px 20px;
-         font-size:13px;font-weight:600;transition:all .15s}
-.btn-pdf:hover{background:#7c3aed;color:#fff}
-
-/* ── Specs list ── */
-.specs-card{background:#1e293b;border:1px solid #334155;border-radius:10px;
-            padding:28px 32px}
-.specs-title{font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;
-             letter-spacing:.06em;margin-bottom:16px}
-.spec-row{display:flex;align-items:center;justify-content:space-between;
-          padding:12px 0;border-bottom:1px solid #1e293b;gap:12px}
-.spec-row:last-child{border-bottom:none}
-.spec-name{font-size:14px;font-weight:600;color:#e2e8f0}
-.spec-meta{font-size:12px;color:#475569;margin-top:2px}
-.spec-actions{display:flex;gap:8px;flex-shrink:0}
-.spec-actions a{font-size:12px;text-decoration:none;padding:5px 12px;
-                border-radius:4px;font-weight:500;transition:all .15s}
-.spec-actions .a-open{color:#60a5fa;border:1px solid #1e3a5f}
-.spec-actions .a-open:hover{background:#1e3a5f}
-.spec-actions .a-pdf{color:#a78bfa;border:1px solid #2d1f5e}
-.spec-actions .a-pdf:hover{background:#2d1f5e}
-.empty-specs{color:#475569;font-size:14px;text-align:center;padding:20px 0}
+  /* specs list */
+  .srow{display:flex;justify-content:space-between;align-items:center;
+        padding:9px 0;border-bottom:1px solid #eee;gap:12px}
+  .srow:last-child{border-bottom:none}
+  .sname{font-size:13px;font-weight:bold;color:#222}
+  .smeta{font-size:11px;color:#888}
+  .slinks a{font-size:12px;border:1px solid #ccc;padding:4px 10px;
+            margin-left:6px;color:#444}
+  .slinks a:hover{background:#f0f0f0;text-decoration:none}
+  .empty{color:#aaa;font-size:13px;text-align:center;padding:16px 0}
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <div class="topbar-brand">
-    <svg viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="6" fill="#0052cc"/>
-      <path d="M8 22l4-8 4 5 4-9 4 12" stroke="#fff" stroke-width="2.2"
-            stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <span>AI Data Gov</span>
-    <small>Flow Specification Generator</small>
-  </div>
-  <nav class="topbar-nav">
-    <a href="/">Dashboard</a>
-  </nav>
-</div>
+<div class="bar">AI Data Gov — Flow Specification Generator</div>
 
 <div class="page">
 
-  <!-- Form -->
-  <div class="form-card">
-    <h2>New Run</h2>
-    <div class="form-row">
-      <div class="form-group">
+  <div class="box">
+    <h3>Run Pipeline</h3>
+    <div class="row">
+      <div class="fg">
         <label>Flow Name</label>
         <input type="text" id="inp-flow" placeholder="e.g. TIERS_LEI" autocomplete="off">
       </div>
-      <div class="form-group">
-        <label>Location <span style="color:#475569;font-weight:400">(optional)</span></label>
+      <div class="fg">
+        <label>Location (optional)</label>
         <input type="text" id="inp-location" placeholder="e.g. Sydney" autocomplete="off">
       </div>
-      <div class="form-group" style="flex:0">
-        <label>Self-Review</label>
-        <div class="toggle-row">
-          <label class="toggle">
-            <input type="checkbox" id="chk-selfreview" checked>
-            <div class="toggle-track"></div>
-            <div class="toggle-thumb"></div>
-          </label>
-          <span class="toggle-label" id="sr-label">Enabled</span>
+      <div class="fg" style="flex:0">
+        <label>&nbsp;</label>
+        <div class="fg-check">
+          <input type="checkbox" id="chk-selfreview" checked>
+          <label for="chk-selfreview">Self-Review</label>
         </div>
       </div>
-      <div class="form-group" style="flex:0">
+      <div class="fg" style="flex:0">
         <label>&nbsp;</label>
-        <button class="btn-run" id="btn-run" onclick="startRun()">▶ Run Pipeline</button>
+        <button class="run" id="btn-run" onclick="startRun()">Run</button>
       </div>
     </div>
   </div>
 
-  <!-- Pipeline visualization -->
-  <div class="pipeline-card" id="pipeline-card" style="display:none">
-    <div class="pipeline-title">Pipeline Execution</div>
-    <div class="pipeline-row">
-      <div class="p-node pending" id="pn-collector">
-        <div class="pn-status"></div>
-        <div class="pn-icon">📂</div>
-        <div class="pn-name">Collector</div>
-        <div class="pn-detail"></div>
+  <div class="box" id="pipeline-card" style="display:none">
+    <h3>Pipeline — <span id="stage-label" style="color:#0052cc;text-transform:none;font-weight:normal"></span></h3>
+    <div class="pipe-row">
+      <div class="pnode pending" id="pn-collector">
+        <div class="ico">📂</div><div class="nm">Collector</div><div class="dt" id="pd-collector"></div>
       </div>
-      <div class="p-arrow" id="pa-analyst"></div>
-      <div class="p-node pending" id="pn-analyst">
-        <div class="pn-status"></div>
-        <div class="pn-icon">⚡</div>
-        <div class="pn-name">Analysts</div>
-        <div class="pn-detail"></div>
+      <div class="parrow" id="pa-analyst">›</div>
+      <div class="pnode pending" id="pn-analyst">
+        <div class="ico">⚡</div><div class="nm">Analysts</div><div class="dt" id="pd-analyst"></div>
       </div>
-      <div class="p-arrow" id="pa-judge"></div>
-      <div class="p-node pending" id="pn-judge">
-        <div class="pn-status"></div>
-        <div class="pn-icon">⚖️</div>
-        <div class="pn-name">Judge</div>
-        <div class="pn-detail"></div>
+      <div class="parrow" id="pa-judge">›</div>
+      <div class="pnode pending" id="pn-judge">
+        <div class="ico">⚖</div><div class="nm">Judge</div><div class="dt" id="pd-judge"></div>
       </div>
-      <div class="p-arrow" id="pa-self_review"></div>
-      <div class="p-node pending" id="pn-self_review">
-        <div class="pn-status"></div>
-        <div class="pn-icon">🔍</div>
-        <div class="pn-name">Self-Review</div>
-        <div class="pn-detail"></div>
+      <div class="parrow" id="pa-self_review">›</div>
+      <div class="pnode pending" id="pn-self_review">
+        <div class="ico">🔍</div><div class="nm">Self-Review</div><div class="dt" id="pd-self_review"></div>
       </div>
-      <div class="p-arrow" id="pa-validator"></div>
-      <div class="p-node pending" id="pn-validator">
-        <div class="pn-status"></div>
-        <div class="pn-icon">✅</div>
-        <div class="pn-name">Validator</div>
-        <div class="pn-detail"></div>
+      <div class="parrow" id="pa-validator">›</div>
+      <div class="pnode pending" id="pn-validator">
+        <div class="ico">✓</div><div class="nm">Validator</div><div class="dt" id="pd-validator"></div>
       </div>
-      <div class="p-arrow" id="pa-writer"></div>
-      <div class="p-node pending" id="pn-writer">
-        <div class="pn-status"></div>
-        <div class="pn-icon">📄</div>
-        <div class="pn-name">Writer</div>
-        <div class="pn-detail"></div>
+      <div class="parrow" id="pa-writer">›</div>
+      <div class="pnode pending" id="pn-writer">
+        <div class="ico">📄</div><div class="nm">Writer</div><div class="dt" id="pd-writer"></div>
       </div>
     </div>
-    <div class="timer-bar">
-      <div class="timer">Elapsed: <span id="elapsed">0s</span></div>
-      <div class="stage-label" id="stage-label"></div>
-    </div>
+    <div class="timer-row">Elapsed: <b id="elapsed">0s</b></div>
   </div>
 
-  <!-- Live log -->
-  <div class="log-card" id="log-card" style="display:none">
-    <div class="log-header">
-      <span>Live Output</span>
-      <div class="dot" id="log-dot"></div>
+  <div class="log-box" id="log-card" style="display:none">
+    <div class="log-hdr">
+      <span>Output</span>
+      <span class="dot" id="log-dot"></span>
     </div>
     <div class="log-body" id="log-body"></div>
   </div>
 
-  <!-- Result -->
-  <div class="result-card" id="result-card">
-    <div class="result-info">
-      <h3 id="result-title">Spec generated</h3>
-      <p id="result-detail"></p>
-    </div>
-    <div class="result-actions">
-      <a href="#" class="btn-view" id="btn-view" target="_blank">View Spec →</a>
-      <a href="#" class="btn-pdf"  id="btn-pdf"  target="_blank">⬇ Export PDF</a>
-    </div>
+  <div class="result-box" id="result-card">
+    <h3 id="result-title"></h3>
+    <p id="result-detail"></p>
+    <a href="#" class="rbtn" id="btn-view" target="_blank">View Spec</a>
+    <a href="#" class="rbtn" id="btn-pdf"  target="_blank">Export PDF</a>
   </div>
 
-  <!-- Previous specs — loaded via JS -->
-  <div class="specs-card">
-    <div class="specs-title">Previous Specifications</div>
-    <div id="specs-list"><div class="empty-specs">Loading…</div></div>
+  <div class="box">
+    <h3>Generated Specifications</h3>
+    <div id="specs-list"><div class="empty">Loading…</div></div>
   </div>
 
 </div><!-- /page -->
@@ -506,18 +374,16 @@ function loadSpecs(){
     .then(data => {
       const el = document.getElementById("specs-list");
       if(!data.specs || data.specs.length === 0){
-        el.innerHTML = '<div class="empty-specs">No specs yet — run the pipeline above.</div>';
+        el.innerHTML = '<div class="empty">No specs yet.</div>';
         return;
       }
       el.innerHTML = data.specs.map(s =>
-        '<div class="spec-row">' +
-          '<div>' +
-            '<div class="spec-name">' + escHtml(s.title) + '</div>' +
-            '<div class="spec-meta">' + s.size + ' KB · ' + s.mtime + '</div>' +
-          '</div>' +
-          '<div class="spec-actions">' +
-            '<a href="/spec/' + s.filename + '" class="a-open" target="_blank">Open →</a>' +
-            '<a href="/print/' + s.filename + '" class="a-pdf" target="_blank">⬇ PDF</a>' +
+        '<div class="srow">' +
+          '<div><div class="sname">' + escHtml(s.title) + '</div>' +
+          '<div class="smeta">' + s.size + ' KB · ' + s.mtime + '</div></div>' +
+          '<div class="slinks">' +
+            '<a href="/spec/' + s.filename + '" target="_blank">Open</a>' +
+            '<a href="/print/' + s.filename + '" target="_blank">PDF</a>' +
           '</div>' +
         '</div>'
       ).join('');
@@ -534,16 +400,13 @@ document.getElementById("chk-selfreview").addEventListener("change", function(){
 function setNode(stage, state, detail){
   const node = document.getElementById("pn-"+stage);
   if(!node) return;
-  node.className = "p-node " + state;
+  node.className = "pnode " + state;
   if(detail !== undefined){
-    node.querySelector(".pn-detail").textContent = detail;
+    const dt = document.getElementById("pd-"+stage);
+    if(dt) dt.textContent = detail;
   }
-  // Activate arrow pointing TO this node
-  const prev = STAGE_ORDER[STAGE_ORDER.indexOf(stage)-1];
-  if(prev){
-    const arr = document.getElementById("pa-"+stage);
-    if(arr) arr.className = "p-arrow " + (state==="done" ? "done" : "active");
-  }
+  const arr = document.getElementById("pa-"+stage);
+  if(arr) arr.className = "parrow " + (state==="done" ? "done" : state==="running" ? "active" : "");
 }
 
 function setStageLabel(text){ document.getElementById("stage-label").textContent = text; }
@@ -551,9 +414,9 @@ function setStageLabel(text){ document.getElementById("stage-label").textContent
 function addLog(agent, message){
   const body = document.getElementById("log-body");
   const line = document.createElement("div");
-  line.className = "log-line";
-  line.innerHTML = `<span class="log-agent agent-${agent}">[${agent.toUpperCase()}]</span>`
-                 + `<span class="log-msg">${escHtml(message)}</span>`;
+  line.className = "ll";
+  line.innerHTML = `<span class="la la-${agent}">[${agent.toUpperCase()}]</span>`
+                 + `<span class="lm">${escHtml(message)}</span>`;
   body.appendChild(line);
   body.scrollTop = body.scrollHeight;
 }
@@ -587,7 +450,7 @@ function showResult(outputPath, ok){
   const specUrl  = "/spec/"+filename;
   const pdfUrl   = "/print/"+filename;
 
-  card.className = "result-card " + (ok ? "success" : "partial");
+  card.className = "result-box " + (ok ? "ok" : "partial");
   title.textContent  = ok ? "✅ Specification complete" : "⚠️ Partial specification";
   detail.textContent = filename + "  ·  generated in " + elapsed + "s";
   btnV.href = specUrl;
@@ -611,7 +474,7 @@ function startRun(){
   STAGE_ORDER.forEach(s => {
     setNode(s, "pending", "");
     const arr = document.getElementById("pa-"+s);
-    if(arr) arr.className = "p-arrow";
+    if(arr) arr.className = "parrow";
   });
   document.getElementById("elapsed").textContent = "0s";
   setStageLabel("");
