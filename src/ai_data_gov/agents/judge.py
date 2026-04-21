@@ -27,7 +27,8 @@ Produce a single SUPERIOR specification by:
 - **Precision wins**: prefer the most specific version (exact field names, table names, business rules)
 - **Coverage wins**: if one analyst captured something the other missed, include it
 - **Correction**: if both analysts are wrong or incomplete on a point, fix it using the source artifacts
-- **Honest gaps**: if the information is genuinely absent from all artifacts, write `[INFORMATION NOT FOUND — source required]`
+- **Legacy code is sufficient**: the Java/XML artifacts (`*Bean.java`, `*ImportWork.java`, `*.xml`, `FixedLengthTokenizer`, mapping configs) contain enough information to reconstitute the full mapping. Before accepting `[INFORMATION NOT FOUND]` from either draft, re-read the legacy code — offsets, lengths, field order, and transformation rules are almost always derivable from `substring(start,end)` calls, XML `<field length/offset>` attributes, or bean-to-bean assignments.
+- **Honest gaps**: only if the information is genuinely absent from ALL artifacts (DDL, Java, XML, docs), write `[INFORMATION NOT FOUND — source required]`
 
 ## FORMAT RULES
 - Each section: 2-3 plain-language sentences + precise technical table

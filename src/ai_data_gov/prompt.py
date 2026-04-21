@@ -24,8 +24,8 @@ Use these pictograms in the Confidence column:
 
 | Pictogram | Level | When to use |
 |-----------|-------|-------------|
-| 🟢 HIGH | Directly observed and confirmed in source code or DDL |
-| 🟡 MEDIUM | Inferred from naming conventions or partial evidence |
+| 🟢 HIGH | Directly observed in DDL, Bean class, ImportWork parser, or XML mapping file |
+| 🟡 MEDIUM | Inferred from naming conventions or partial evidence across artifacts |
 | 🔴 LOW | Uncertain — a mandatory explanation must follow |
 
 For every 🟡 MEDIUM or 🔴 LOW entry, add an explanation on the next line:
@@ -39,6 +39,35 @@ For every 🟡 MEDIUM or 🔴 LOW entry, add an explanation on the next line:
 `CREATED_BY`, `CREATED_DATE`, `UPDATED_BY`, `UPDATED_DATE`, `VERSION`, `BATCH_ID`, `JOB_ID`, `STEP_ID`, `SEQUENCE_NBR`, `RECORD_STATUS`, `ACTIVE_FLAG`, `DELETE_FLAG`, `LOAD_DATE`, `PROCESS_DATE`
 
 Focus only on business-meaningful fields specific to this flow.
+
+---
+
+## LEGACY ARTIFACTS — WHERE TO FIND THE MAPPING
+
+The legacy code contains ENOUGH information to reconstitute the full mapping. Do NOT default to `[INFORMATION NOT FOUND]` when DDL is incomplete — the answer is almost always in the Java or XML files. Cross-reference every artifact before declaring a gap.
+
+**Primary sources for field layout, length, offset and mapping** (in order of reliability):
+
+| Artifact | What to extract |
+|----------|-----------------|
+| `*Bean.java` / DTO classes | Field names, Java types, getters/setters → Type column |
+| `*ImportWork.java` / parser classes | `substring(start, end)`, `indexOf`, `split`, positional parsing → **Length and Offset** |
+| `*.xml` (flat-file / LineMapper / SweetDev config) | `<field name="..." length="..." offset="..."/>`, `FixedLengthTokenizer` columns → **authoritative source for Length/Offset** |
+| DDL (`CREATE TABLE`) | Target column types and constraints; rarely has offsets |
+| Mapping/rowmapper files | Source-field → target-field assignments → Section 3 rules |
+
+**How to reconstitute Section 2 when DDL lacks Length/Offset:**
+1. Find the file-reading / parsing code (`FixedLengthTokenizer`, `substring`, XML field declarations).
+2. Read field positions in declaration order.
+3. Compute Length = end - start (or take declared `length` attribute).
+4. Compute Offset cumulatively starting at 0.
+
+**How to reconstitute Section 3 (Transformation):**
+- Walk the `*ImportWork.java` processing method line by line — every assignment to a bean field IS a transformation rule.
+- XML mapping files make the source → target relation explicit.
+- `if/switch/case` blocks are business rules — describe them in plain language, not code.
+
+If information is split across multiple files, MERGE it. A gap only exists when no artifact — Java, XML, DDL, or docs — contains the information.
 
 ---
 
@@ -63,14 +92,19 @@ Brief description of the source data in plain language.
 | Table | Field | Type | Length | Offset | Business Meaning | Confidence |
 |-------|-------|------|--------|--------|-----------------|------------|
 
-> **Row order**: rows MUST follow the exact field declaration order from the DDL (top-to-bottom, as defined in `CREATE TABLE` / fixed-width layout). Do not reorder alphabetically or by business meaning.
+> **Row order**: rows MUST follow the exact field declaration order from the source layout (DDL `CREATE TABLE`, XML `<field>` declarations, or the parsing order in `*ImportWork.java`). Do not reorder alphabetically or by business meaning.
 >
 > **Offset rules** (fixed-width / positional files):
 > - The **first field MUST start at offset `0`** (zero-based).
 > - Each subsequent offset = previous offset + previous length.
 > - Example: field A (length 10) → offset 0; field B (length 5) → offset 10; field C (length 8) → offset 15.
 >
-> Use `[NOT FOUND]` for Length/Offset only if the DDL does not define a fixed-width layout.
+> **Where to look for Length/Offset** (in priority order):
+> 1. XML mapping config (`<field length="..." offset="..."/>`, `FixedLengthTokenizer` columns) — authoritative
+> 2. `*ImportWork.java` parsing code (`substring(start, end)`) — length = end − start
+> 3. DDL column definitions
+>
+> Only write `[NOT FOUND]` when NONE of the artifacts (DDL, Java, XML, docs) define the layout.
 
 ---
 
