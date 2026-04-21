@@ -459,11 +459,17 @@ function escHtml(s){
   return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
 
+function formatElapsed(ms){
+  const s = Math.round(ms/1000);
+  if(s < 60) return s+"s";
+  const m = Math.floor(s/60), r = s%60;
+  return m+"m "+(r<10?"0":"")+r+"s";
+}
+
 function startTimer(){
   _startTime = Date.now();
   _timerInterval = setInterval(()=>{
-    const s = Math.round((Date.now()-_startTime)/1000);
-    document.getElementById("elapsed").textContent = s+"s";
+    document.getElementById("elapsed").textContent = formatElapsed(Date.now()-_startTime);
   }, 500);
 }
 
@@ -479,14 +485,14 @@ function showResult(outputPath, ok){
   const btnV   = document.getElementById("btn-view");
   const btnP   = document.getElementById("btn-pdf");
 
-  const elapsed = Math.round((Date.now()-_startTime)/1000);
+  const elapsedStr = formatElapsed(Date.now()-_startTime);
   const filename = outputPath.split(/[\\\\/]/).pop();
   const specUrl  = "/spec/"+filename;
   const pdfUrl   = "/print/"+filename;
 
   card.className = "result-box " + (ok ? "ok" : "partial");
   title.textContent  = ok ? "✅ Specification complete" : "⚠️ Partial specification";
-  detail.textContent = filename + "  ·  generated in " + elapsed + "s";
+  detail.textContent = filename + "  ·  generated in " + elapsedStr;
   btnV.href = specUrl;
   btnP.href = pdfUrl;
   card.style.display = "flex";
