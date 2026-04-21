@@ -281,7 +281,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="row">
       <div class="fg">
         <label>Flow Name</label>
-        <input type="text" id="inp-flow" placeholder="e.g. TIERS_LEI" autocomplete="off">
+        <input type="text" id="inp-flow" placeholder="e.g. ATLAS2" autocomplete="off">
       </div>
       <div class="fg">
         <label>Location (optional)</label>

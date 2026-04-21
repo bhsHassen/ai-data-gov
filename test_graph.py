@@ -3,9 +3,9 @@ End-to-end pipeline test.
 
 Usage:
   python test_graph.py <FLOW_NAME> [LOCATION] [--single|--multi]
-  python test_graph.py TIERS_LEI
-  python test_graph.py TIERS_LEI Sydney
-  python test_graph.py TIERS_LEI Sydney --single
+  python test_graph.py ATLAS2
+  python test_graph.py ATLAS2 Sydney
+  python test_graph.py ATLAS2 Sydney --single
 """
 
 import sys

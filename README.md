@@ -27,7 +27,7 @@ cp .env.example .env
 ## Usage
 
 ```bash
-python main.py --flow TIERS_LEI
+python main.py --flow ATLAS2
 ```
 
 ## Project structure

@@ -29,7 +29,7 @@ GET_FILE_TOOL = {
             "properties": {
                 "filename": {
                     "type": "string",
-                    "description": "Exact filename to retrieve (e.g. TiersLEIImportWork.java)",
+                    "description": "Exact filename to retrieve (e.g. Atlas2ImportWork.java)",
                 }
             },
             "required": ["filename"],
@@ -53,7 +53,7 @@ def analyze(
     The loop continues until the model returns a final text response.
 
     Args:
-        flow_name:         Name of the flow (e.g. "TIERS_LEI").
+        flow_name:         Name of the flow (e.g. "ATLAS2").
         raw_context:       Initial context from the Collector.
         validation_errors: Missing sections flagged by Validator (retry only).
         attempt:           Current attempt number.

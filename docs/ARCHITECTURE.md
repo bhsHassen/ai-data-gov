@@ -63,7 +63,7 @@ LangGraph acts as the orchestrator. It does not contain any business logic — i
 class FlowState(TypedDict):
 
     # ── INPUT ──────────────────────────────────────────────────
-    flow_name: str          # e.g. "TIERS_LEI"
+    flow_name: str          # e.g. "ATLAS2"
     location: str | None    # e.g. "Sydney", "London" (optional)
 
     # ── COLLECTOR OUTPUT ───────────────────────────────────────
@@ -99,7 +99,7 @@ Each node receives the full current state and returns only the fields it modifie
 ```
 Initial state                    After Collector              After Multi-Analyst
 ──────────────────────────────   ────────────────────────     ─────────────────────────
-flow_name:    "TIERS_LEI"        flow_name:    "TIERS_LEI"    flow_name:    "TIERS_LEI"
+flow_name:    "ATLAS2"        flow_name:    "ATLAS2"    flow_name:    "ATLAS2"
 location:     "Sydney"           location:     "Sydney"        location:     "Sydney"
 raw_context:  ""                 raw_context:  "=== DDL ..."   raw_context:  "=== DDL ..."
 spec_drafts:  {}                 spec_drafts:  {}              spec_drafts:  {"qwen3": "...",
@@ -118,7 +118,7 @@ retry_count:  0                  retry_count:  0               retry_count:  1
 
 **What it does:**
 - Scans `SOURCE_DIR` for `*ImportWork.java`, `*Bean.java`, and `*<FLOW_NAME>*.xml`
-- Applies a content filter: keeps only files whose content mentions the flow name (in any variant: `TIERS_LEI`, `TiersLei`, `tierslei`...)
+- Applies a content filter: keeps only files whose content mentions the flow name (in any variant: `ATLAS2`, `atlas2`, `Atlas2`...)
 - Reads all DDL files from `DDL_DIR`
 - Reads all existing docs from `DOCS_DIR`
 - Concatenates everything into a single `raw_context` string with clear section separators
@@ -232,8 +232,8 @@ Each run produces one Markdown file in `output/`:
 
 ```
 output/
-  FLOW_TIERS_LEI_SPEC.md          # without location
-  FLOW_TIERS_LEI_SYDNEY_SPEC.md   # with location
+  FLOW_ATLAS2_SPEC.md          # without location
+  FLOW_ATLAS2_SYDNEY_SPEC.md   # with location
 ```
 
 The file contains a 7-section specification:

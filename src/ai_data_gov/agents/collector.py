@@ -7,7 +7,7 @@ Source file filtering strategy:
 
   Step 2 — Content filter (flow name variants):
     Keeps only files whose name or content contains the flow name
-    in any of its common forms (TIERS_LEI, tiers_lei, TiersLei, tierslei...)
+    in any of its common forms (ATLAS2, atlas2, Atlas2...)
 
   Result: a small, relevant set of files for the given flow.
 
@@ -80,17 +80,18 @@ def _flow_name_variants(flow_name: str) -> list[str]:
     """
     Generates common textual variants of a flow name for content search.
 
-    Example — flow_name = "TIERS_LEI":
-      TIERS_LEI, tiers_lei, TiersLei, tierslei, TIERSLEI
+    Example — flow_name = "ATLAS2":
+      ATLAS2, atlas2, Atlas2
+    (For underscored names like "FOO_BAR": FOO_BAR, foo_bar, FooBar, foobar, FOOBAR)
     """
     parts = flow_name.split("_")
 
     variants = set()
-    variants.add(flow_name)                                      # TIERS_LEI
-    variants.add(flow_name.lower())                              # tiers_lei
-    variants.add(flow_name.replace("_", ""))                     # TIERSLEI
-    variants.add(flow_name.lower().replace("_", ""))             # tierslei
-    variants.add("".join(p.capitalize() for p in parts))         # TiersLei
+    variants.add(flow_name)                                      # ATLAS2
+    variants.add(flow_name.lower())                              # atlas2
+    variants.add(flow_name.replace("_", ""))                     # ATLAS2 (no underscore)
+    variants.add(flow_name.lower().replace("_", ""))             # atlas2
+    variants.add("".join(p.capitalize() for p in parts))         # Atlas2
 
     return list(variants)
 
@@ -225,7 +226,7 @@ def collect(
     Main entry point.
 
     Args:
-        flow_name:        Flow to process (e.g. "TIERS_LEI").
+        flow_name:        Flow to process (e.g. "ATLAS2").
         properties_path:  Path to config.properties.
 
     Note: location is NOT used for filtering — the same source files

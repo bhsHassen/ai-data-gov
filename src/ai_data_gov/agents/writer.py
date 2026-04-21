@@ -22,7 +22,7 @@ def write(
     Writes the spec to a Markdown file.
 
     Args:
-        flow_name:         Name of the flow (e.g. "TIERS_LEI").
+        flow_name:         Name of the flow (e.g. "ATLAS2").
         spec_draft:        Final Markdown spec from the Judge.
         validation_ok:     True if all 7 sections passed validation.
         validation_errors: List of missing sections (if any).

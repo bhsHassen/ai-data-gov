@@ -3,8 +3,8 @@ Validation script for the Collector agent.
 
 Usage:
   python test_collector.py <FLOW_NAME> [LOCATION]
-  python test_collector.py TIERS_LEI
-  python test_collector.py TIERS_LEI Sydney
+  python test_collector.py ATLAS2
+  python test_collector.py ATLAS2 Sydney
 
 Setup:
   1. Edit config.properties with your local paths
@@ -16,8 +16,8 @@ from src.ai_data_gov.agents.collector import collect
 
 if len(sys.argv) < 2:
     print("Usage: python test_collector.py <FLOW_NAME> [LOCATION]")
-    print("Example: python test_collector.py TIERS_LEI")
-    print("Example: python test_collector.py TIERS_LEI Sydney")
+    print("Example: python test_collector.py ATLAS2")
+    print("Example: python test_collector.py ATLAS2 Sydney")
     sys.exit(1)
 
 flow_name = sys.argv[1]
