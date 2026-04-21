@@ -18,7 +18,7 @@ Write each section so that BOTH audiences can use it directly:
 
 ---
 
-## CONFIDENCE SCORING — APPLIES TO SECTIONS 2 AND 3 ONLY
+## CONFIDENCE SCORING — APPLIES TO SECTION 3 ONLY
 
 Use these pictograms in the Confidence column:
 
@@ -89,8 +89,8 @@ Plain language (2-3 sentences): what does this flow do, why does it exist, who b
 ## 2. Source
 Brief description of the source data in plain language.
 
-| Table | Field | Type | Length | Offset | Business Meaning | Confidence |
-|-------|-------|------|--------|--------|-----------------|------------|
+| Table | Field | Type | Length | Offset | Business Meaning |
+|-------|-------|------|--------|--------|-----------------|
 
 > **Row order**: rows MUST follow the exact field declaration order from the source layout (DDL `CREATE TABLE`, XML `<field>` declarations, or the parsing order in `*ImportWork.java`). Do not reorder alphabetically or by business meaning.
 >

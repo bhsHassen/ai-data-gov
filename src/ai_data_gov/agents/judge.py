@@ -32,7 +32,7 @@ Produce a single SUPERIOR specification by:
 
 ## FORMAT RULES
 - Each section: 2-3 plain-language sentences + precise technical table
-- Confidence on Sections 2 and 3 only — use pictograms: 🟢 HIGH / 🟡 MEDIUM / 🔴 LOW
+- Confidence column on Section 3 only — use pictograms: 🟢 HIGH / 🟡 MEDIUM / 🔴 LOW (Section 2 has no Confidence column)
 - Length and Offset in Section 2 only (from DDL)
 - **Section 2 — row order**: fields MUST appear in DDL declaration order (top-to-bottom as defined in `CREATE TABLE` / fixed-width layout). If either draft has them reordered, fix it.
 - **Section 2 — offsets**: the FIRST field offset MUST be `0`. Each subsequent offset = previous offset + previous length. Recompute offsets from scratch — do not trust either draft blindly.
