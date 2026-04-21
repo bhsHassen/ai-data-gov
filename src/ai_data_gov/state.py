@@ -28,7 +28,7 @@ class FlowState(TypedDict):
 
     # Control
     retry_count: int                # current retry count (max 3)
-    self_review_enabled: bool       # if True, judge reviews its own output before validation
+    pipeline_mode: str              # "single" (Qwen3 only) | "multi" (Qwen3 + Codestral + Judge)
 
     # Writer output
     output_path: Optional[str]      # path to the written .md file

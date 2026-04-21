@@ -1,10 +1,13 @@
 """
 LangGraph pipeline — AI Flow Documentation POC.
 
-Pipeline:
-  START → collector → multi_analyst → judge → self_review → validator → writer → END
-                             ↑                                    |
-                             └────────────── retry ───────────────┘ (max 3)
+Single mode:  START → collector → analyst_single → validator → writer → END
+                                        ↑               |
+                                        └─── retry ─────┘
+
+Multi mode:   START → collector → multi_analyst → judge → validator → writer → END
+                                        ↑                      |
+                                        └──────── retry ────────┘
 """
 from __future__ import annotations
 
@@ -14,7 +17,7 @@ from langgraph.graph import StateGraph, END
 from src.ai_data_gov.state import FlowState
 from src.ai_data_gov.agents.collector import collect
 from src.ai_data_gov.agents.analyst import analyze
-from src.ai_data_gov.agents.judge import judge, self_review
+from src.ai_data_gov.agents.judge import judge
 from src.ai_data_gov.agents.validator import validate
 from src.ai_data_gov.agents.writer import write
 from src.ai_data_gov.llm import get_model
@@ -123,8 +126,37 @@ def collector_node(state: FlowState) -> dict:
     return {**counts, "raw_context": raw_context}
 
 
+def analyst_single_node(state: FlowState) -> dict:
+    """Single mode — runs only Analyst 1 (Qwen3), result goes directly to validator."""
+    flow_name = state["flow_name"]
+    location  = state.get("location")
+    attempt   = state.get("retry_count", 0) + 1
+
+    model = get_model("analyst1")
+    emit_event({"type": "stage_start", "stage": "analyst",
+                "detail": f"{model} · attempt {attempt}/{MAX_RETRIES}"})
+    log("analyst", f"running {model} — single mode (attempt {attempt}/{MAX_RETRIES})")
+
+    draft = analyze(
+        flow_name=flow_name,
+        raw_context=state["raw_context"],
+        model_role="analyst1",
+        location=location,
+        validation_errors=state.get("validation_errors"),
+        attempt=attempt,
+    )
+
+    log("analyst", f"{model} done ({len(draft):,} chars)")
+    emit_event({"type": "stage_done", "stage": "analyst", "detail": f"{len(draft):,} chars"})
+    return {
+        "spec_drafts": {model: draft},
+        "spec_draft":  draft,          # single mode: analyst output IS the final spec
+        "retry_count": attempt,
+    }
+
+
 def multi_analyst_node(state: FlowState) -> dict:
-    """Runs Analyst 1 (Qwen3) and Analyst 2 (Codestral) in parallel."""
+    """Multi mode — runs Analyst 1 (Qwen3) and Analyst 2 (Codestral) in parallel."""
     flow_name = state["flow_name"]
     location  = state.get("location")
     attempt   = state.get("retry_count", 0) + 1
@@ -132,7 +164,7 @@ def multi_analyst_node(state: FlowState) -> dict:
     model1 = get_model("analyst1")
     model2 = get_model("analyst2")
     emit_event({"type": "stage_start", "stage": "analyst",
-                "detail": f"{model1} + {model2}  ·  attempt {attempt}/{MAX_RETRIES}"})
+                "detail": f"{model1} + {model2} · attempt {attempt}/{MAX_RETRIES}"})
     log("analyst", f"running {model1} + {model2} in parallel (attempt {attempt}/{MAX_RETRIES})")
 
     drafts: dict = {}
@@ -154,7 +186,7 @@ def multi_analyst_node(state: FlowState) -> dict:
             role, draft = future.result()
             model_name   = get_model(role)
             drafts[model_name] = draft
-            log("analyst", f"{model_name} done ({len(draft)} chars)")
+            log("analyst", f"{model_name} done ({len(draft):,} chars)")
 
     sizes = " · ".join(f"{m}: {len(d):,} chars" for m, d in drafts.items())
     emit_event({"type": "stage_done", "stage": "analyst", "detail": sizes})
@@ -190,23 +222,6 @@ def judge_node(state: FlowState) -> dict:
                 "detail": f"{len(final_spec):,} chars"})
     return {"spec_draft": final_spec}
 
-
-def self_review_node(state: FlowState) -> dict:
-    """Judge reviews and improves its own spec against the source artifacts."""
-    emit_event({"type": "stage_start", "stage": "self_review"})
-    log("judge", "self-review — improving spec against source artifacts")
-
-    improved = self_review(
-        flow_name=state["flow_name"],
-        raw_context=state["raw_context"],
-        spec_draft=state["spec_draft"],
-        location=state.get("location"),
-    )
-
-    log("judge", f"improved spec ({len(improved)} chars)")
-    emit_event({"type": "stage_done", "stage": "self_review",
-                "detail": f"{len(improved):,} chars"})
-    return {"spec_draft": improved}
 
 
 def validator_node(state: FlowState) -> dict:
@@ -255,11 +270,11 @@ def writer_node(state: FlowState) -> dict:
 #  Routing                                                                      #
 # --------------------------------------------------------------------------- #
 
-def route_after_judge(state: FlowState) -> str:
-    if state.get("self_review_enabled", True):
-        return "self_review"
-    log("router", "self-review disabled — skipping to validator")
-    return "validator"
+def route_after_collector(state: FlowState) -> str:
+    mode = state.get("pipeline_mode", "multi")
+    if mode == "single":
+        return "analyst_single"
+    return "multi_analyst"
 
 
 def route_after_validator(state: FlowState) -> str:
@@ -267,10 +282,11 @@ def route_after_validator(state: FlowState) -> str:
         return "writer"
 
     retry_count = state.get("retry_count", 0)
+    mode = state.get("pipeline_mode", "multi")
     if retry_count < MAX_RETRIES:
         log("router", f"validation failed — retrying ({retry_count}/{MAX_RETRIES})")
         emit_event({"type": "retry", "retry_count": retry_count, "max": MAX_RETRIES})
-        return "multi_analyst"
+        return "analyst_single" if mode == "single" else "multi_analyst"
 
     log("router", "max retries reached — writing partial spec")
     return "writer"
@@ -283,27 +299,27 @@ def route_after_validator(state: FlowState) -> str:
 def build_graph() -> StateGraph:
     graph = StateGraph(FlowState)
 
-    graph.add_node("collector",      collector_node)
-    graph.add_node("multi_analyst",  multi_analyst_node)
-    graph.add_node("judge",          judge_node)
-    graph.add_node("self_review",    self_review_node)
-    graph.add_node("validator",      validator_node)
-    graph.add_node("writer",         writer_node)
+    graph.add_node("collector",       collector_node)
+    graph.add_node("analyst_single",  analyst_single_node)
+    graph.add_node("multi_analyst",   multi_analyst_node)
+    graph.add_node("judge",           judge_node)
+    graph.add_node("validator",       validator_node)
+    graph.add_node("writer",          writer_node)
 
     graph.set_entry_point("collector")
 
-    graph.add_edge("collector",     "multi_analyst")
-    graph.add_edge("multi_analyst", "judge")
     graph.add_conditional_edges(
-        "judge",
-        route_after_judge,
-        {"self_review": "self_review", "validator": "validator"},
+        "collector",
+        route_after_collector,
+        {"analyst_single": "analyst_single", "multi_analyst": "multi_analyst"},
     )
-    graph.add_edge("self_review",   "validator")
+    graph.add_edge("analyst_single", "validator")   # single: skip judge
+    graph.add_edge("multi_analyst",  "judge")
+    graph.add_edge("judge",          "validator")
     graph.add_conditional_edges(
         "validator",
         route_after_validator,
-        {"multi_analyst": "multi_analyst", "writer": "writer"},
+        {"analyst_single": "analyst_single", "multi_analyst": "multi_analyst", "writer": "writer"},
     )
     graph.add_edge("writer", END)
 

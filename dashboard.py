@@ -38,7 +38,7 @@ _runs_lock = threading.Lock()
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _run_pipeline(run_id: str, flow_name: str, location: str | None,
-                  self_review_enabled: bool) -> None:
+                  pipeline_mode: str) -> None:
     """Runs the LangGraph pipeline in a background thread."""
     # Lazy import so the module loads fast
     from src.ai_data_gov.graph import build_graph
@@ -60,7 +60,7 @@ def _run_pipeline(run_id: str, flow_name: str, location: str | None,
             "validation_ok":       False,
             "validation_errors":   [],
             "retry_count":         0,
-            "self_review_enabled": self_review_enabled,
+            "pipeline_mode":       pipeline_mode,
             "output_path":         None,
         }
 
@@ -288,10 +288,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <input type="text" id="inp-location" placeholder="e.g. Sydney" autocomplete="off">
       </div>
       <div class="fg" style="flex:0">
-        <label>&nbsp;</label>
-        <div class="fg-check">
-          <input type="checkbox" id="chk-selfreview" checked>
-          <label for="chk-selfreview">Self-Review</label>
+        <label>Mode</label>
+        <div style="display:flex;gap:16px;padding-bottom:8px">
+          <label style="font-size:13px;color:#444;display:flex;align-items:center;gap:5px;cursor:pointer">
+            <input type="radio" name="mode" id="mode-multi" value="multi" checked>
+            Multi (+ Judge)
+          </label>
+          <label style="font-size:13px;color:#444;display:flex;align-items:center;gap:5px;cursor:pointer">
+            <input type="radio" name="mode" id="mode-single" value="single">
+            Single (Qwen3)
+          </label>
         </div>
       </div>
       <div class="fg" style="flex:0">
@@ -319,10 +325,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="parrow" id="pa-judge">›</div>
       <div class="pnode pending" id="pn-judge">
         <div class="ico">⚖</div><div class="nm">Judge</div><div class="dt" id="pd-judge"></div>
-      </div>
-      <div class="parrow" id="pa-self_review">›</div>
-      <div class="pnode pending" id="pn-self_review">
-        <div class="ico">🔍</div><div class="nm">Self-Review</div><div class="dt" id="pd-self_review"></div>
       </div>
       <div class="parrow" id="pa-validator">›</div>
       <div class="pnode pending" id="pn-validator">
@@ -359,7 +361,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 </div><!-- /page -->
 
 <script>
-const STAGE_ORDER = ["collector","analyst","judge","self_review","validator","writer"];
+const STAGE_ORDER = ["collector","analyst","judge","validator","writer"];
 let _evtSource = null;
 let _startTime = null;
 let _timerInterval = null;
@@ -389,10 +391,19 @@ function loadSpecs(){
 }
 document.addEventListener("DOMContentLoaded", loadSpecs);
 
-// Toggle label
-document.getElementById("chk-selfreview").addEventListener("change", function(){
-  document.getElementById("sr-label").textContent = this.checked ? "Enabled" : "Disabled";
-});
+// Show/hide Analyst 2 + Judge based on mode selection
+function updatePipelinePreview(){
+  const single = document.getElementById("mode-single").checked;
+  const a2 = document.getElementById("pn-analyst2");
+  const judge = document.getElementById("pn-judge");
+  const paJudge = document.getElementById("pa-judge");
+  if(a2) a2.style.display = single ? "none" : "";
+  if(judge) judge.style.display = single ? "none" : "";
+  if(paJudge) paJudge.style.display = single ? "none" : "";
+}
+document.querySelectorAll("input[name='mode']").forEach(r =>
+  r.addEventListener("change", updatePipelinePreview)
+);
 
 function setNode(stage, state, detail){
   if(stage === "analyst"){
@@ -487,7 +498,8 @@ function showResult(outputPath, ok){
 function startRun(){
   const flow     = document.getElementById("inp-flow").value.trim().toUpperCase();
   const location = document.getElementById("inp-location").value.trim();
-  const selfRev  = document.getElementById("chk-selfreview").checked;
+  const mode     = document.querySelector("input[name='mode']:checked").value;
+  const single   = mode === "single";
 
   if(!flow){ document.getElementById("inp-flow").focus(); return; }
 
@@ -502,20 +514,22 @@ function startRun(){
   document.getElementById("elapsed").textContent = "0s";
   setStageLabel("");
 
+  // Show/hide nodes based on mode
+  document.getElementById("pn-analyst2").style.display = single ? "none" : "";
+  document.getElementById("pn-judge").style.display    = single ? "none" : "";
+  document.getElementById("pa-judge").style.display    = single ? "none" : "";
+
   // Show cards
   document.getElementById("pipeline-card").style.display = "block";
   document.getElementById("log-card").style.display = "block";
   document.getElementById("log-dot").classList.add("live");
   document.getElementById("btn-run").disabled = true;
 
-  // Handle skipped self-review
-  if(!selfRev) setNode("self_review","skipped","disabled");
-
   // POST → get run_id
   fetch("/api/run", {
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({flow_name:flow, location:location||null, self_review_enabled:selfRev})
+    body: JSON.stringify({flow_name:flow, location:location||null, pipeline_mode:mode})
   })
   .then(r=>r.json())
   .then(data=>{
@@ -556,7 +570,7 @@ function connectSSE(runId){
     if(ev.type === "retry"){
       addLog("router", "Validation failed — retrying ("+ev.retry_count+"/"+ev.max+")");
       // Reset analyst → writer nodes
-      ["analyst","judge","self_review","validator","writer"].forEach(s=>{
+      ["analyst","judge","validator","writer"].forEach(s=>{
         setNode(s,"pending","");
         const arr=document.getElementById("pa-"+s);
         if(arr) arr.className="p-arrow";
@@ -719,7 +733,9 @@ def api_run():
     data     = request.get_json(force=True)
     flow     = data.get("flow_name", "").strip().upper()
     location = (data.get("location") or "").strip() or None
-    sr       = bool(data.get("self_review_enabled", True))
+    mode     = data.get("pipeline_mode", "multi")
+    if mode not in ("single", "multi"):
+        mode = "multi"
 
     if not flow:
         return {"error": "flow_name is required"}, 400
@@ -729,7 +745,7 @@ def api_run():
     with _runs_lock:
         _runs[run_id] = q
 
-    t = threading.Thread(target=_run_pipeline, args=(run_id, flow, location, sr), daemon=True)
+    t = threading.Thread(target=_run_pipeline, args=(run_id, flow, location, mode), daemon=True)
     t.start()
 
     return {"run_id": run_id}
