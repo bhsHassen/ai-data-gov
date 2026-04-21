@@ -224,6 +224,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .parrow{flex-shrink:0;padding:0 4px;color:#bbb;font-size:16px;line-height:1}
   .parrow.active{color:#0052cc}
   .parrow.done{color:#2e7d32}
+  .analyst-col{display:flex;flex-direction:column;gap:4px}
   .timer-row{font-size:12px;color:#888;margin-top:6px}
   .timer-row b{color:#0052cc}
 
@@ -307,8 +308,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <div class="ico">📂</div><div class="nm">Collector</div><div class="dt" id="pd-collector"></div>
       </div>
       <div class="parrow" id="pa-analyst">›</div>
-      <div class="pnode pending" id="pn-analyst">
-        <div class="ico">⚡</div><div class="nm">Analysts</div><div class="dt" id="pd-analyst"></div>
+      <div class="analyst-col">
+        <div class="pnode pending" id="pn-analyst1">
+          <div class="nm">Analyst 1</div><div class="dt" id="pd-analyst1"></div>
+        </div>
+        <div class="pnode pending" id="pn-analyst2">
+          <div class="nm">Analyst 2</div><div class="dt" id="pd-analyst2"></div>
+        </div>
       </div>
       <div class="parrow" id="pa-judge">›</div>
       <div class="pnode pending" id="pn-judge">
@@ -389,6 +395,32 @@ document.getElementById("chk-selfreview").addEventListener("change", function(){
 });
 
 function setNode(stage, state, detail){
+  if(stage === "analyst"){
+    const n1 = document.getElementById("pn-analyst1");
+    const n2 = document.getElementById("pn-analyst2");
+    if(!n1 || !n2) return;
+    n1.className = "pnode " + state;
+    n2.className = "pnode " + state;
+    // Parse detail: start → "qwen3 + codestral · attempt 1/3"
+    //               done  → "qwen3: 12,345 chars · codestral: 11,234 chars"
+    if(detail){
+      const parts = detail.split(" \u00b7 ");  // · separator
+      if(state === "running" && parts[0].includes(" + ")){
+        const models = parts[0].split(" + ");
+        document.getElementById("pd-analyst1").textContent = models[0] || "";
+        document.getElementById("pd-analyst2").textContent = models[1] || "";
+      } else {
+        document.getElementById("pd-analyst1").textContent = parts[0] || "";
+        document.getElementById("pd-analyst2").textContent = parts[1] || "";
+      }
+    } else {
+      document.getElementById("pd-analyst1").textContent = "";
+      document.getElementById("pd-analyst2").textContent = "";
+    }
+    const arr = document.getElementById("pa-analyst");
+    if(arr) arr.className = "parrow " + (state==="done" ? "done" : state==="running" ? "active" : "");
+    return;
+  }
   const node = document.getElementById("pn-"+stage);
   if(!node) return;
   node.className = "pnode " + state;
