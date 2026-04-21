@@ -63,7 +63,14 @@ Brief description of the source data in plain language.
 | Table | Field | Type | Length | Offset | Business Meaning | Confidence |
 |-------|-------|------|--------|--------|-----------------|------------|
 
-> Use `[NOT FOUND]` for Length/Offset if not available in DDL.
+> **Row order**: rows MUST follow the exact field declaration order from the DDL (top-to-bottom, as defined in `CREATE TABLE` / fixed-width layout). Do not reorder alphabetically or by business meaning.
+>
+> **Offset rules** (fixed-width / positional files):
+> - The **first field MUST start at offset `0`** (zero-based).
+> - Each subsequent offset = previous offset + previous length.
+> - Example: field A (length 10) → offset 0; field B (length 5) → offset 10; field C (length 8) → offset 15.
+>
+> Use `[NOT FOUND]` for Length/Offset only if the DDL does not define a fixed-width layout.
 
 ---
 
@@ -134,4 +141,9 @@ def build_user_prompt(flow_name: str, raw_context: str, location: str | None = N
 {raw_context}
 
 Generate all 7 sections. Extract Length and Offset from DDL definitions for Section 2 only.
+
+**Section 2 is critical**:
+- Rows MUST be in DDL declaration order (the order in which fields appear in the CREATE TABLE / fixed-width layout).
+- The FIRST offset MUST be `0`. Each next offset = previous offset + previous length. Do not guess — compute.
+
 """

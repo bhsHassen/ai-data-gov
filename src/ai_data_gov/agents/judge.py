@@ -33,6 +33,8 @@ Produce a single SUPERIOR specification by:
 - Each section: 2-3 plain-language sentences + precise technical table
 - Confidence on Sections 2 and 3 only — use pictograms: 🟢 HIGH / 🟡 MEDIUM / 🔴 LOW
 - Length and Offset in Section 2 only (from DDL)
+- **Section 2 — row order**: fields MUST appear in DDL declaration order (top-to-bottom as defined in `CREATE TABLE` / fixed-width layout). If either draft has them reordered, fix it.
+- **Section 2 — offsets**: the FIRST field offset MUST be `0`. Each subsequent offset = previous offset + previous length. Recompute offsets from scratch — do not trust either draft blindly.
 - Section 4 Target: simple table (Field, Populated From) — no Length/Offset/Confidence
 - Section 5 Lineage: narrative + table without Confidence column
 - Section 6 Quality: table without Confidence column
