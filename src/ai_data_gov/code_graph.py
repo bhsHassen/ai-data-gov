@@ -58,14 +58,13 @@ def loader_node(state: CodeGenState) -> dict:
     emit_event({"type": "stage_start", "stage": "loader"})
     log("loader", f"parsing spec: {spec_filename}")
 
-    sections     = load_spec(spec_filename)
-    is_file_flow = detect_file_flow(sections.get("2", ""))
-    guideline    = load_guideline()
+    sections                = load_spec(spec_filename)
+    is_file_flow            = detect_file_flow(sections.get("2", ""))
+    guideline, gl_diagnostic = load_guideline()
 
-    if guideline:
-        log("loader", f"guideline loaded ({len(guideline):,} chars)")
-    else:
-        log("loader", "no guideline.md found — using defaults")
+    # Always echo the diagnostic so the user can see which paths were
+    # checked when no file is found, or which path was loaded when one is.
+    log("loader", gl_diagnostic)
 
     section_keys = sorted(k for k in sections.keys() if k != "raw")
     kind         = "file flow" if is_file_flow else "DB flow"

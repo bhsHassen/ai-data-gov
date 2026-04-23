@@ -88,7 +88,30 @@ def detect_file_flow(section2: str) -> bool:
     return False
 
 
-def load_guideline(path: str = "guideline.md") -> str:
+_GUIDELINE_CANDIDATES = (
+    "guideline.md",
+    "guidelines.md",
+    "GUIDELINE.md",
+    "Guideline.md",
+    "docs/guideline.md",
+    "docs/guidelines.md",
+    "docs/GUIDELINE.md",
+)
+
+
+def _found_guideline_path(custom_path: str | None) -> Path | None:
+    """Returns the first existing candidate path, or None."""
+    if custom_path:
+        p = Path(custom_path)
+        return p if p.exists() else None
+    for name in _GUIDELINE_CANDIDATES:
+        p = Path(name)
+        if p.exists():
+            return p
+    return None
+
+
+def load_guideline(path: str | None = None) -> tuple[str, str]:
     """
     Reads the project guideline file.
 
@@ -97,21 +120,44 @@ def load_guideline(path: str = "guideline.md") -> str:
     rules, how a new migration session should be structured...). It is
     project-wide — the same file applies to every flow.
 
-    Returns the file content as a string, or an empty string if the file is
-    absent. Missing guideline is NOT an error: the pipeline falls back to
-    the defaults baked into the Developer / Reviewer system prompts.
+    Lookup order when `path` is not supplied:
+      1. ./guideline.md       (recommended)
+      2. ./guidelines.md
+      3. ./GUIDELINE.md  /  ./Guideline.md
+      4. ./docs/guideline.md
+      5. ./docs/guidelines.md  /  ./docs/GUIDELINE.md
 
-    Args:
-        path: Relative or absolute path. Default is `./guideline.md` at the
-              project root (same cwd the dashboard runs from).
+    Returns a tuple (content, diagnostic):
+      - content: file text, or "" if no candidate was found / readable.
+      - diagnostic: human-readable string for the log. When found,
+        includes the resolved absolute path + char count. When not found,
+        lists the absolute paths that were checked.
+
+    Missing guideline is NOT an error — the pipeline falls back to the
+    defaults baked into the Developer / Reviewer system prompts.
     """
-    p = Path(path)
-    if not p.exists():
-        return ""
+    found = _found_guideline_path(path)
+
+    if found is None:
+        if path:
+            tried = [str(Path(path).resolve())]
+        else:
+            tried = [str(Path(c).resolve()) for c in _GUIDELINE_CANDIDATES]
+        return "", "no guideline found — checked: " + ", ".join(tried)
+
     try:
-        return p.read_text(encoding="utf-8")
-    except Exception:
-        return ""
+        content = found.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        # Fallback for BOM-ed / CP1252 files so a bad encoding doesn't
+        # silently kill the feature.
+        try:
+            content = found.read_text(encoding="utf-8-sig")
+        except Exception as e:  # noqa: BLE001
+            return "", f"guideline at {found.resolve()} could not be read: {e}"
+    except Exception as e:  # noqa: BLE001
+        return "", f"guideline at {found.resolve()} could not be read: {e}"
+
+    return content, f"guideline loaded ({len(content):,} chars) from {found.resolve()}"
 
 
 def derive_flow_name(filename: str) -> str:
