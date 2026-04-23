@@ -18,13 +18,18 @@ except ImportError:
 
 # Color mapping per agent
 COLORS = {
-    "collector":  "\033[94m",   # Blue
-    "analyst":    "\033[96m",   # Cyan
-    "judge":      "\033[93m",   # Yellow
-    "validator":  "\033[92m",   # Green
-    "writer":     "\033[95m",   # Magenta
-    "router":     "\033[90m",   # Gray
-    "error":      "\033[91m",   # Red
+    "collector":   "\033[94m",       # Blue
+    "analyst":     "\033[96m",       # Cyan
+    "judge":       "\033[93m",       # Yellow
+    "validator":   "\033[92m",       # Green
+    "writer":      "\033[95m",       # Magenta
+    "router":      "\033[90m",       # Gray
+    "error":       "\033[91m",       # Red
+    # Code-generation pipeline
+    "loader":      "\033[94m",       # Blue (reuse)
+    "developer":   "\033[38;5;208m", # Orange (256-color)
+    "reviewer":    "\033[38;5;37m",  # Teal   (256-color)
+    "code_writer": "\033[95m",       # Magenta (reuse of writer)
 }
 RESET = "\033[0m"
 BOLD  = "\033[1m"

@@ -35,13 +35,15 @@ def build_client() -> OpenAI:
 def get_model(role: str = "analyst1") -> str:
     """
     Returns the model name for a given role.
-    role: "analyst1" | "analyst2" | "judge"
+    role: "analyst1" | "analyst2" | "judge" | "developer" | "reviewer"
     Falls back to LLM_MODEL if role-specific var is not set.
     """
     mapping = {
-        "analyst1": "LLM_MODEL_ANALYST1",
-        "analyst2": "LLM_MODEL_ANALYST2",
-        "judge":    "LLM_MODEL_JUDGE",
+        "analyst1":  "LLM_MODEL_ANALYST1",
+        "analyst2":  "LLM_MODEL_ANALYST2",
+        "judge":     "LLM_MODEL_JUDGE",
+        "developer": "LLM_MODEL_DEVELOPER",
+        "reviewer":  "LLM_MODEL_REVIEWER",
     }
     env_var  = mapping.get(role, "LLM_MODEL_ANALYST1")
     fallback = os.getenv("LLM_MODEL", "qwen3")
