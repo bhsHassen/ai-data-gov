@@ -237,14 +237,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI Data Gov</title>
+<title>CERISE AI4DataGouv</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:Arial,sans-serif;background:#f5f5f5;color:#222;font-size:14px}
   a{color:#0052cc;text-decoration:none}
   a:hover{text-decoration:underline}
 
-  .bar{background:#0052cc;color:#fff;padding:10px 20px;font-weight:bold;font-size:15px}
+  .bar{background:#0052cc;color:#fff;padding:18px 28px;font-weight:bold;font-size:20px;
+       letter-spacing:.3px;box-shadow:0 2px 6px rgba(0,0,0,.18)}
+  .bar span.bar-sub{font-size:13px;font-weight:normal;opacity:.8;margin-left:14px}
 
   .page{max-width:960px;margin:24px auto;padding:0 16px}
 
@@ -374,7 +376,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 </head>
 <body>
 
-<div class="bar">AI Data Gov — Flow Specification Generator</div>
+<div class="bar">CERISE AI4DataGouv<span class="bar-sub">Flow Specification &amp; Code Generator</span></div>
 
 <div class="page">
 
