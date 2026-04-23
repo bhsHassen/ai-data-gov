@@ -802,7 +802,8 @@ function escHtml(s){
 
 function highlightJava(src){
   // Single-pass tokenizer: comments | strings | annotations | numbers | idents
-  const re = /(\/\*[\s\S]*?\*\/)|(\/\/[^\n]*)|("(?:\\.|[^"\\])*")|('(?:\\.|[^'\\])*')|(@[A-Za-z_][\w.]*)|(\b\d[\d_.]*[dflDFL]?\b)|([A-Za-z_$][\w$]*)/g;
+  // NOTE: backslashes are doubled because this JS lives inside a Python string.
+  const re = /(\\/\\*[\\s\\S]*?\\*\\/)|(\\/\\/[^\\n]*)|("(?:\\\\.|[^"\\\\])*")|('(?:\\\\.|[^'\\\\])*')|(@[A-Za-z_][\\w.]*)|(\\b\\d[\\d_.]*[dflDFL]?\\b)|([A-Za-z_$][\\w$]*)/g;
   let out = "", last = 0, m;
   while((m = re.exec(src)) !== null){
     if(m.index > last) out += escHtml(src.slice(last, m.index));
@@ -828,13 +829,13 @@ function renderCodeLines(src){
   // Highlight then split into lines, re-opening spans that cross newlines
   // (block comments are the main case).
   const html = highlightJava(src);
-  const rawLines = html.split("\n");
+  const rawLines = html.split("\\n");
   const out = [];
   const openStack = [];
   for(const line of rawLines){
     const prefix = openStack.map(c => '<span class="'+c+'">').join("");
     // Scan this line to track open spans that carry into the next line.
-    const tagRe = /<span class="(j-[kstcan])">|<\/span>/g;
+    const tagRe = /<span class="(j-[kstcan])">|<\\/span>/g;
     let t;
     while((t = tagRe.exec(line)) !== null){
       if(t[1]) openStack.push(t[1]);
@@ -854,7 +855,7 @@ function showCodeTab(filename){
   });
   const entry = _codeTabs[filename];
   const host  = document.getElementById("code-tab-content");
-  const lineCount = entry.content ? entry.content.split("\n").length : 0;
+  const lineCount = entry.content ? entry.content.split("\\n").length : 0;
   host.innerHTML =
     '<div class="tab-actions">' +
       '<div class="tab-meta">' + escHtml(filename) + ' · ' + lineCount + ' lines</div>' +
