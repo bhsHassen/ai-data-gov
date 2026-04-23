@@ -316,10 +316,34 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .tab.active{background:#fff;color:#0052cc;border-bottom:1px solid #fff;
               margin-bottom:-1px;font-weight:bold}
   .tab-content{background:#fff;border:1px solid #ccc;border-top:none;
-               max-height:420px;overflow:auto;padding:0}
-  .tab-content pre{margin:0;padding:12px 14px;font-family:Consolas,monospace;
-                   font-size:12px;line-height:1.5;color:#222;white-space:pre}
-  .code-empty{color:#999;font-size:12px;padding:24px;text-align:center}
+               max-height:520px;overflow:auto;padding:0;position:relative}
+  .tab-actions{position:sticky;top:0;z-index:2;
+               display:flex;justify-content:space-between;align-items:center;
+               padding:6px 10px;border-bottom:1px solid #eee;background:#f6f8fa}
+  .tab-meta{font-family:Consolas,monospace;font-size:11px;color:#888}
+  .copy-btn{background:#fff;border:1px solid #ccc;color:#555;
+            padding:3px 12px;font-size:11px;cursor:pointer;font-family:inherit;
+            border-radius:3px;transition:all .15s}
+  .copy-btn:hover{background:#0052cc;color:#fff;border-color:#0052cc}
+  .copy-btn.copied{background:#e6f4ea;color:#2e7d32;border-color:#8bc99a}
+  .code-lines{margin:0;padding:10px 0;counter-reset:ln;
+              font-family:'Cascadia Code','Fira Code','JetBrains Mono',Consolas,Menlo,monospace;
+              font-size:13px;line-height:1.55;color:#24292e}
+  .code-line{display:block;counter-increment:ln;padding:0 16px 0 60px;
+             position:relative;white-space:pre;min-height:1.55em}
+  .code-line::before{content:counter(ln);position:absolute;left:0;width:46px;
+                     text-align:right;padding-right:10px;color:#b0b7be;
+                     user-select:none;border-right:1px solid #eee;
+                     font-variant-numeric:tabular-nums}
+  .code-line:hover{background:#f6f8fa}
+  .code-empty{color:#999;font-size:12px;padding:40px 24px;text-align:center}
+  /* Java syntax tokens — Atom One Light palette (intranet-safe, no CDN) */
+  .j-k{color:#a626a4;font-weight:600}        /* keyword  — purple */
+  .j-t{color:#c18401}                        /* type     — ochre  */
+  .j-s{color:#50a14f}                        /* string   — green  */
+  .j-c{color:#a0a1a7;font-style:italic}      /* comment  — gray   */
+  .j-a{color:#e45649}                        /* annot.   — red    */
+  .j-n{color:#986801}                        /* number   — amber  */
 
   .result-files{list-style:none;margin-top:8px;padding-left:0}
   .result-files li{font-family:Consolas,monospace;font-size:12px;color:#444;
@@ -759,15 +783,91 @@ function resetCodeTabs(){
     '<div class="code-empty">Generated files will appear here as each agent produces them.</div>';
 }
 
+// --- Java syntax highlighting (vanilla, no CDN) ---------------------- //
+const JAVA_KEYWORDS = new Set([
+  "abstract","assert","boolean","break","byte","case","catch","char","class",
+  "const","continue","default","do","double","else","enum","extends","final",
+  "finally","float","for","goto","if","implements","import","instanceof","int",
+  "interface","long","native","new","package","private","protected","public",
+  "return","short","static","strictfp","super","switch","synchronized","this",
+  "throw","throws","transient","try","void","volatile","while","true","false",
+  "null","var","yield","record","sealed","permits","non-sealed"
+]);
+
+function escHtml(s){
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function highlightJava(src){
+  // Single-pass tokenizer: comments | strings | annotations | numbers | idents
+  const re = /(\/\*[\s\S]*?\*\/)|(\/\/[^\n]*)|("(?:\\.|[^"\\])*")|('(?:\\.|[^'\\])*')|(@[A-Za-z_][\w.]*)|(\b\d[\d_.]*[dflDFL]?\b)|([A-Za-z_$][\w$]*)/g;
+  let out = "", last = 0, m;
+  while((m = re.exec(src)) !== null){
+    if(m.index > last) out += escHtml(src.slice(last, m.index));
+    if(m[1])      out += '<span class="j-c">' + escHtml(m[1]) + '</span>';
+    else if(m[2]) out += '<span class="j-c">' + escHtml(m[2]) + '</span>';
+    else if(m[3]) out += '<span class="j-s">' + escHtml(m[3]) + '</span>';
+    else if(m[4]) out += '<span class="j-s">' + escHtml(m[4]) + '</span>';
+    else if(m[5]) out += '<span class="j-a">' + escHtml(m[5]) + '</span>';
+    else if(m[6]) out += '<span class="j-n">' + escHtml(m[6]) + '</span>';
+    else if(m[7]){
+      const w = m[7];
+      if(JAVA_KEYWORDS.has(w))       out += '<span class="j-k">' + w + '</span>';
+      else if(/^[A-Z]/.test(w))      out += '<span class="j-t">' + w + '</span>';
+      else                           out += escHtml(w);
+    }
+    last = re.lastIndex;
+  }
+  if(last < src.length) out += escHtml(src.slice(last));
+  return out;
+}
+
+function renderCodeLines(src){
+  // Highlight then split into lines, re-opening spans that cross newlines
+  // (block comments are the main case).
+  const html = highlightJava(src);
+  const rawLines = html.split("\n");
+  const out = [];
+  const openStack = [];
+  for(const line of rawLines){
+    const prefix = openStack.map(c => '<span class="'+c+'">').join("");
+    // Scan this line to track open spans that carry into the next line.
+    const tagRe = /<span class="(j-[kstcan])">|<\/span>/g;
+    let t;
+    while((t = tagRe.exec(line)) !== null){
+      if(t[1]) openStack.push(t[1]);
+      else openStack.pop();
+    }
+    const suffix = openStack.map(()=>"</span>").join("");
+    const body = prefix + line + suffix;
+    out.push('<div class="code-line">' + (body.length ? body : " ") + '</div>');
+  }
+  return out.join("");
+}
+
 function showCodeTab(filename){
   _codeActiveTab = filename;
   Object.keys(_codeTabs).forEach(f => {
     _codeTabs[f].btn.className = "tab" + (f === filename ? " active" : "");
   });
-  const content = document.getElementById("code-tab-content");
-  content.innerHTML = "";
-  const pre = _codeTabs[filename].pre;
-  content.appendChild(pre);
+  const entry = _codeTabs[filename];
+  const host  = document.getElementById("code-tab-content");
+  const lineCount = entry.content ? entry.content.split("\n").length : 0;
+  host.innerHTML =
+    '<div class="tab-actions">' +
+      '<div class="tab-meta">' + escHtml(filename) + ' · ' + lineCount + ' lines</div>' +
+      '<button class="copy-btn" id="code-copy-btn">Copy</button>' +
+    '</div>' +
+    '<div class="code-lines">' + entry.rendered + '</div>';
+  document.getElementById("code-copy-btn").onclick = () => {
+    navigator.clipboard.writeText(entry.content).then(() => {
+      const b = document.getElementById("code-copy-btn");
+      if(!b) return;
+      b.textContent = "Copied ✓";
+      b.classList.add("copied");
+      setTimeout(() => { b.textContent = "Copy"; b.classList.remove("copied"); }, 1500);
+    });
+  };
 }
 
 function upsertCodeTab(filename, content){
@@ -779,15 +879,11 @@ function upsertCodeTab(filename, content){
     btn.textContent = filename;
     btn.onclick = () => showCodeTab(filename);
     tabsEl.appendChild(btn);
-
-    const pre = document.createElement("pre");
-    const code = document.createElement("code");
-    pre.appendChild(code);
-
-    entry = { btn, pre, code };
+    entry = { btn, content: "", rendered: "" };
     _codeTabs[filename] = entry;
   }
-  entry.code.textContent = content;
+  entry.content  = content || "";
+  entry.rendered = renderCodeLines(entry.content);
   if(_codeActiveTab === null || _codeActiveTab === filename){
     showCodeTab(filename);
   }
