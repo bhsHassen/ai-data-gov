@@ -75,6 +75,40 @@ def _run_pipeline(run_id: str, flow_name: str, location: str | None,
         q.put(None)   # sentinel → close SSE stream
 
 
+def _run_code_pipeline(run_id: str, spec_filename: str, flow_name: str) -> None:
+    """Runs the code-generation LangGraph pipeline in a background thread."""
+    # Lazy import so dashboard boot stays fast and circular risks are avoided.
+    from src.ai_data_gov.code_graph import code_app
+
+    q = _runs[run_id]
+
+    try:
+        _console.attach_queue(q)
+
+        initial_state = {
+            "flow_name":     flow_name,
+            "spec_filename": spec_filename,
+            "spec_markdown": "",
+            "spec_sections": {},
+            "is_file_flow":  False,
+            "guideline":     "",
+            "dev_code":      "",
+            "final_code":    "",
+            "output_dir":    None,
+            "output_paths":  [],
+            "filenames":     [],
+        }
+
+        code_app.invoke(initial_state)
+
+    except Exception as exc:  # noqa: BLE001
+        _console.emit_event({"type": "error", "message": str(exc)})
+
+    finally:
+        _console.detach_queue()
+        q.put(None)   # sentinel → close SSE stream
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  Helpers (shared with preview.py)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -127,6 +161,27 @@ def _load_md(filename: str) -> str:
     if not path.exists():
         abort(404)
     return path.read_text(encoding="utf-8")
+
+
+def _derive_flow_name_from_spec(filename: str) -> str:
+    """
+    Strips the FLOW_ prefix and _SPEC.md suffix — keeps the middle as-is.
+
+    Examples:
+        FLOW_ATLAS2_SPEC.md              → "ATLAS2"
+        FLOW_ATLAS2_SYDNEY_SPEC.md       → "ATLAS2_SYDNEY"
+        FLOW_PAYMENT_FEED_SPEC.md        → "PAYMENT_FEED"
+        FLOW_PAYMENT_FEED_LONDON_SPEC.md → "PAYMENT_FEED_LONDON"
+
+    Keeping the location in the folder name avoids collisions when code is
+    generated for multiple locations of the same flow.
+    """
+    stem = filename
+    if stem.startswith("FLOW_"):
+        stem = stem[len("FLOW_"):]
+    if stem.endswith("_SPEC.md"):
+        stem = stem[: -len("_SPEC.md")]
+    return stem or filename
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -246,6 +301,29 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .la-writer{color:#880e4f}
   .la-router{color:#888}
   .la-error{color:#c62828}
+  .la-loader{color:#1565c0}
+  .la-developer{color:#d84315}
+  .la-reviewer{color:#00695c}
+  .la-code_writer{color:#880e4f}
+
+  /* code pipeline — tabbed preview */
+  .tabs{display:flex;gap:2px;border-bottom:1px solid #ccc;margin-top:14px;
+        overflow-x:auto;flex-wrap:nowrap}
+  .tab{background:#f0f0f0;border:1px solid #ccc;border-bottom:none;
+       padding:6px 14px;font-size:12px;font-family:inherit;color:#555;
+       cursor:pointer;white-space:nowrap;transition:background .15s}
+  .tab:hover{background:#e6e6e6}
+  .tab.active{background:#fff;color:#0052cc;border-bottom:1px solid #fff;
+              margin-bottom:-1px;font-weight:bold}
+  .tab-content{background:#fff;border:1px solid #ccc;border-top:none;
+               max-height:420px;overflow:auto;padding:0}
+  .tab-content pre{margin:0;padding:12px 14px;font-family:Consolas,monospace;
+                   font-size:12px;line-height:1.5;color:#222;white-space:pre}
+  .code-empty{color:#999;font-size:12px;padding:24px;text-align:center}
+
+  .result-files{list-style:none;margin-top:8px;padding-left:0}
+  .result-files li{font-family:Consolas,monospace;font-size:12px;color:#444;
+                   padding:2px 0}
 
   /* result */
   .result-box{border:1px solid #ccc;padding:14px 18px;margin-bottom:16px;
@@ -353,6 +431,39 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <a href="#" class="rbtn" id="btn-pdf"  target="_blank">Export PDF</a>
   </div>
 
+  <div class="box" id="code-card" style="display:none">
+    <h3>Code Generation — <span id="code-stage-label" style="color:#0052cc;text-transform:none;font-weight:normal"></span></h3>
+    <div class="pipe-row">
+      <div class="pnode pending" id="pn-loader">
+        <div class="ico">📘</div><div class="nm">Spec Loader</div><div class="dt" id="pd-loader"></div>
+      </div>
+      <div class="parrow" id="pa-developer">›</div>
+      <div class="pnode pending" id="pn-developer">
+        <div class="ico">🛠</div><div class="nm">Developer</div><div class="dt" id="pd-developer"></div>
+      </div>
+      <div class="parrow" id="pa-reviewer">›</div>
+      <div class="pnode pending" id="pn-reviewer">
+        <div class="ico">🔍</div><div class="nm">Reviewer</div><div class="dt" id="pd-reviewer"></div>
+      </div>
+      <div class="parrow" id="pa-code_writer">›</div>
+      <div class="pnode pending" id="pn-code_writer">
+        <div class="ico">📄</div><div class="nm">Writer</div><div class="dt" id="pd-code_writer"></div>
+      </div>
+    </div>
+    <div class="timer-row">Elapsed: <b id="code-elapsed">0s</b></div>
+
+    <div class="tabs" id="code-tabs"></div>
+    <div class="tab-content" id="code-tab-content">
+      <div class="code-empty">Generated files will appear here as each agent produces them.</div>
+    </div>
+  </div>
+
+  <div class="result-box" id="code-result-card">
+    <h3 id="code-result-title"></h3>
+    <p id="code-result-detail"></p>
+    <ul class="result-files" id="code-result-files"></ul>
+  </div>
+
   <div class="box">
     <h3>Generated Specifications</h3>
     <div id="specs-list"><div class="empty">Loading…</div></div>
@@ -383,6 +494,7 @@ function loadSpecs(){
           '<div class="slinks">' +
             '<a href="/spec/' + s.filename + '" target="_blank">Open</a>' +
             '<a href="/print/' + s.filename + '" target="_blank">PDF</a>' +
+            '<a href="#" onclick="startCodeRun(\\''+s.filename+'\\');return false">Generate Code</a>' +
           '</div>' +
         '</div>'
       ).join('');
@@ -612,6 +724,186 @@ function connectSSE(runId){
     _evtSource.close();
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+//  CODE GENERATION PIPELINE
+// ─────────────────────────────────────────────────────────────────────────
+const CODE_STAGE_ORDER = ["loader","developer","reviewer","code_writer"];
+let _codeEvtSource = null;
+let _codeStartTime = null;
+let _codeTimerInterval = null;
+let _codeTabs = {};   // filename → { btn, pre }
+let _codeActiveTab = null;
+
+function setCodeNode(stage, state, detail){
+  const node = document.getElementById("pn-"+stage);
+  if(!node) return;
+  node.className = "pnode " + state;
+  if(detail !== undefined){
+    const dt = document.getElementById("pd-"+stage);
+    if(dt) dt.textContent = detail;
+  }
+  const arr = document.getElementById("pa-"+stage);
+  if(arr) arr.className = "parrow " + (state==="done" ? "done" : state==="running" ? "active" : "");
+}
+
+function setCodeStageLabel(text){
+  document.getElementById("code-stage-label").textContent = text;
+}
+
+function resetCodeTabs(){
+  _codeTabs = {};
+  _codeActiveTab = null;
+  document.getElementById("code-tabs").innerHTML = "";
+  document.getElementById("code-tab-content").innerHTML =
+    '<div class="code-empty">Generated files will appear here as each agent produces them.</div>';
+}
+
+function showCodeTab(filename){
+  _codeActiveTab = filename;
+  Object.keys(_codeTabs).forEach(f => {
+    _codeTabs[f].btn.className = "tab" + (f === filename ? " active" : "");
+  });
+  const content = document.getElementById("code-tab-content");
+  content.innerHTML = "";
+  const pre = _codeTabs[filename].pre;
+  content.appendChild(pre);
+}
+
+function upsertCodeTab(filename, content){
+  let entry = _codeTabs[filename];
+  if(!entry){
+    const tabsEl = document.getElementById("code-tabs");
+    const btn = document.createElement("button");
+    btn.className = "tab";
+    btn.textContent = filename;
+    btn.onclick = () => showCodeTab(filename);
+    tabsEl.appendChild(btn);
+
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    pre.appendChild(code);
+
+    entry = { btn, pre, code };
+    _codeTabs[filename] = entry;
+  }
+  entry.code.textContent = content;
+  if(_codeActiveTab === null || _codeActiveTab === filename){
+    showCodeTab(filename);
+  }
+}
+
+function startCodeTimer(){
+  _codeStartTime = Date.now();
+  _codeTimerInterval = setInterval(()=>{
+    document.getElementById("code-elapsed").textContent =
+      formatElapsed(Date.now()-_codeStartTime);
+  }, 500);
+}
+
+function stopCodeTimer(){ clearInterval(_codeTimerInterval); }
+
+function showCodeResult(outputDir, files){
+  stopCodeTimer();
+  document.getElementById("log-dot").classList.remove("live");
+
+  const card   = document.getElementById("code-result-card");
+  const title  = document.getElementById("code-result-title");
+  const detail = document.getElementById("code-result-detail");
+  const list   = document.getElementById("code-result-files");
+
+  const elapsedStr = formatElapsed(Date.now()-_codeStartTime);
+  card.className = "result-box ok";
+  title.textContent  = "✅ Code generated";
+  detail.textContent = "Files saved to: " + outputDir + "  ·  generated in " + elapsedStr;
+  list.innerHTML = (files||[]).map(f => "<li>• " + escHtml(f) + "</li>").join("");
+  card.style.display = "block";
+}
+
+function startCodeRun(specFilename){
+  // Reset UI
+  document.getElementById("code-result-card").style.display = "none";
+  document.getElementById("log-body").innerHTML = "";
+  CODE_STAGE_ORDER.forEach(s => {
+    setCodeNode(s, "pending", "");
+    const arr = document.getElementById("pa-"+s);
+    if(arr) arr.className = "parrow";
+  });
+  document.getElementById("code-elapsed").textContent = "0s";
+  setCodeStageLabel(specFilename);
+  resetCodeTabs();
+
+  document.getElementById("code-card").style.display = "block";
+  document.getElementById("log-card").style.display = "block";
+  document.getElementById("log-dot").classList.add("live");
+
+  fetch("/api/generate-code", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({spec_filename:specFilename})
+  })
+  .then(r=>r.json().then(d=>({ok:r.ok, data:d})))
+  .then(({ok, data})=>{
+    if(!ok){
+      addLog("error", data.error || "Failed to start code run");
+      return;
+    }
+    startCodeTimer();
+    connectCodeSSE(data.run_id);
+  })
+  .catch(err=>{ addLog("error","Failed to start code run: "+err); });
+}
+
+function connectCodeSSE(runId){
+  if(_codeEvtSource) _codeEvtSource.close();
+  _codeEvtSource = new EventSource("/api/code-events/"+runId);
+
+  _codeEvtSource.onmessage = function(e){
+    const ev = JSON.parse(e.data);
+
+    if(ev.type === "heartbeat") return;
+
+    if(ev.type === "log"){ addLog(ev.agent, ev.message); return; }
+
+    if(ev.type === "stage_start"){
+      setCodeNode(ev.stage, "running", ev.detail||"");
+      setCodeStageLabel(ev.stage.replace("_"," ").toUpperCase());
+      return;
+    }
+
+    if(ev.type === "stage_done"){
+      setCodeNode(ev.stage, "done", ev.detail||"");
+      return;
+    }
+
+    if(ev.type === "code_file"){
+      upsertCodeTab(ev.filename, ev.content || "");
+      return;
+    }
+
+    if(ev.type === "pipeline_complete"){
+      showCodeResult(ev.output_dir, ev.files || []);
+      _codeEvtSource.close();
+      return;
+    }
+
+    if(ev.type === "error"){
+      addLog("error", ev.message);
+      stopCodeTimer();
+      document.getElementById("log-dot").classList.remove("live");
+      _codeEvtSource.close();
+      return;
+    }
+
+    if(ev.type === "done"){ _codeEvtSource.close(); return; }
+  };
+
+  _codeEvtSource.onerror = function(){
+    addLog("error", "Connection lost.");
+    stopCodeTimer();
+    _codeEvtSource.close();
+  };
+}
 </script>
 </body>
 </html>
@@ -757,8 +1049,50 @@ def api_run():
     return {"run_id": run_id}
 
 
-@app.route("/api/events/<run_id>")
-def api_events(run_id: str):
+@app.route("/api/generate-code", methods=["POST"])
+def api_generate_code():
+    """Kicks off the code-generation pipeline for an existing spec file."""
+    data          = request.get_json(force=True) or {}
+    spec_filename = (data.get("spec_filename") or "").strip()
+
+    # Same guard as _load_md — reject traversal, require .md suffix.
+    if not spec_filename or ".." in spec_filename or not spec_filename.endswith(".md"):
+        return {"error": "invalid spec_filename"}, 400
+
+    spec_path = OUTPUT_DIR / spec_filename
+    if not spec_path.exists():
+        return {"error": f"spec not found: {spec_filename}"}, 404
+
+    flow_name = _derive_flow_name_from_spec(spec_filename)
+    if not flow_name:
+        return {"error": "could not derive flow name from filename"}, 400
+
+    run_id = str(uuid.uuid4())
+    q: queue.Queue = queue.Queue()
+    with _runs_lock:
+        _runs[run_id] = q
+
+    t = threading.Thread(
+        target=_run_code_pipeline,
+        args=(run_id, spec_filename, flow_name),
+        daemon=True,
+    )
+    t.start()
+
+    return {"run_id": run_id, "flow_name": flow_name}
+
+
+@app.route("/api/code-events/<run_id>")
+def api_code_events(run_id: str):
+    return _sse_response(run_id)
+
+
+def _sse_response(run_id: str) -> Response:
+    """
+    Shared SSE generator — streams events from the run's queue until a
+    sentinel (None) is received. Used by both the spec pipeline and the
+    code-generation pipeline. Pops the queue from _runs on disconnect.
+    """
     with _runs_lock:
         q = _runs.get(run_id)
     if q is None:
@@ -787,6 +1121,11 @@ def api_events(run_id: str):
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.route("/api/events/<run_id>")
+def api_events(run_id: str):
+    return _sse_response(run_id)
 
 
 @app.route("/spec/<filename>")
