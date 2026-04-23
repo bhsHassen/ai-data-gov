@@ -13,6 +13,10 @@ from pathlib import Path
 
 OUTPUT_DIR = Path("output")
 
+# Project root: spec_loader.py lives at src/ai_data_gov/agents/spec_loader.py
+# so parents[3] == project root regardless of the CWD at runtime.
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
 # Matches a level-2 heading like "## 2. Source" → captures "2"
 _SECTION_HEADING = re.compile(r"^##\s*(\d+)\.\s", re.MULTILINE)
 
@@ -100,14 +104,31 @@ _GUIDELINE_CANDIDATES = (
 
 
 def _found_guideline_path(custom_path: str | None) -> Path | None:
-    """Returns the first existing candidate path, or None."""
+    """
+    Returns the first existing candidate path, or None.
+
+    Lookup strategy (CWD-independent):
+      1. If a custom path is given, resolve it relative to the project root.
+      2. Otherwise try each candidate relative to the project root first,
+         then fall back to CWD (for users who run from a different directory).
+    """
     if custom_path:
+        # Try absolute, then relative to project root, then CWD.
         p = Path(custom_path)
-        return p if p.exists() else None
+        if p.is_absolute():
+            return p if p.exists() else None
+        for base in (_PROJECT_ROOT, Path(".")):
+            candidate = base / p
+            if candidate.exists():
+                return candidate
+        return None
+
     for name in _GUIDELINE_CANDIDATES:
-        p = Path(name)
-        if p.exists():
-            return p
+        # Project root has priority; CWD is the fallback.
+        for base in (_PROJECT_ROOT, Path(".")):
+            p = base / name
+            if p.exists():
+                return p
     return None
 
 
@@ -140,9 +161,10 @@ def load_guideline(path: str | None = None) -> tuple[str, str]:
 
     if found is None:
         if path:
-            tried = [str(Path(path).resolve())]
+            tried = [str((_PROJECT_ROOT / path).resolve()),
+                     str(Path(path).resolve())]
         else:
-            tried = [str(Path(c).resolve()) for c in _GUIDELINE_CANDIDATES]
+            tried = [str((_PROJECT_ROOT / c).resolve()) for c in _GUIDELINE_CANDIDATES]
         return "", "no guideline found — checked: " + ", ".join(tried)
 
     try:
