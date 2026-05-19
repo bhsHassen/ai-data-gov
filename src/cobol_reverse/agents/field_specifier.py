@@ -151,12 +151,13 @@ R4. CONDITIONS OBLIGATOIRES
 
 R5. NON-TROUVÉ EXPLICITE — MUTUELLEMENT EXCLUSIF AVEC LES RÈGLES
     DEUX CAS SEULEMENT, jamais les deux ensemble :
-    CAS A — Des règles ont été trouvées → remplis le tableau, section Contrôles, Remarques.
+    CAS A — Des règles ont été trouvées → liste les règles en bullet-list, remplis
+             Contrôles et Remarques.
              NE PAS écrire "Non trouvé" ni le bloc ⚠️.
     CAS B — Aucune règle trouvée → écrire UNIQUEMENT :
              "⚠️ Non trouvé dans le code source — aucune alimentation détectée."
-             NE PAS inventer de règles, NE PAS écrire de tableau vide.
-    Si tu as rempli au moins une ligne du tableau → tu es dans le CAS A.
+             NE PAS inventer de règles, NE PAS écrire de bullet-list vide.
+    Si tu as écrit au moins une règle (bullet "- Règle …") → tu es dans le CAS A.
     N'écris JAMAIS une règle hypothétique du type "pourrait être alimenté par...".
 
 R6. CHAMPS SOURCE EXACTS
@@ -182,20 +183,20 @@ FORMAT DE RÉPONSE STRICT (Markdown)
 **Description**   : <une phrase décrivant le rôle fonctionnel du champ — basée sur le libellé et le contexte du code>
 
 **Alimentation**
-| # | Type | Condition | Règle | Ligne(s) |
-|---|------|-----------|-------|---------|
-| 1 | MOVE / COMPUTE / INIT | Toujours / Si ... | Description exacte | [ligne X] |
-
-> Si aucune alimentation trouvée :
-> ⚠️ **Non trouvé dans le code source — aucune alimentation détectée.**
+- Règle 1 : [MOVE / COMPUTE / INITIALIZE / REDEFINES] — Condition : [Toujours / Si <condition verbatim>] — <description exacte de la règle> [ligne X]
+- Règle 2 : ... [ligne Y]
+- *(si aucune alimentation trouvée)* ⚠️ **Non trouvé dans le code source — aucune alimentation détectée.**
 
 **Contrôles**
-- <contrôle 1 avec référence de ligne>
+- <contrôle explicitement codé sur CE champ avec référence de ligne>
 - Aucun contrôle détecté. ← si rien trouvé
 
 **Remarques**
 - <uniquement si une information structurelle importante est visible dans le code>
 - Laisser vide si rien à signaler.
+
+RAPPEL R5 : si tu écris au moins une "Règle N :", NE PAS écrire la ligne ⚠️.
+            Si tu n'as AUCUNE règle, écrire UNIQUEMENT la ligne ⚠️, rien d'autre.
 """
 
 

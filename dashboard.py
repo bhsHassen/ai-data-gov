@@ -996,19 +996,17 @@ function renderMd(md){
   let t = md.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 
   // ── Tables: collect consecutive | lines into <table> ────────────────
-  t = t.replace(/((?:^\|.+\|\n?)+)/gm, tableBlock => {
-    const rows = tableBlock.trim().split("\\n").filter(r => r.trim());
-    let html = '<table class="md-table">';
-    let isHead = true;
-    rows.forEach(row => {
-      // Separator row (|---|---|)
-      if(/^\|[-| :]+\|$/.test(row.trim())) { isHead = false; return; }
-      const cells = row.split("|").slice(1,-1).map(c => c.trim());
-      const tag   = isHead ? "th" : "td";
-      html += "<tr>" + cells.map(c => `<${tag}>${c}</${tag}>`).join("") + "</tr>";
-      if(isHead) isHead = false;
+  t = t.replace(/((?:^\\|.+\\|\\n?)+)/gm, function(tableBlock){
+    const rows = tableBlock.trim().split("\\n").filter(function(r){ return r.trim(); });
+    let html = '<table class="md-table"><thead>';
+    let inHead = true;
+    rows.forEach(function(row){
+      if(/^[\\| :-]+$/.test(row.trim())){ html += "</thead><tbody>"; inHead=false; return; }
+      const cells = row.split("|").slice(1,-1).map(function(c){ return c.trim(); });
+      const tag = inHead ? "th" : "td";
+      html += "<tr>" + cells.map(function(c){ return "<"+tag+">"+c+"</"+tag+">"; }).join("") + "</tr>";
     });
-    return html + "</table>";
+    return html + (inHead?"</thead>":"</tbody>") + "</table>";
   });
 
   // ── Headings ─────────────────────────────────────────────────────────
@@ -1016,8 +1014,8 @@ function renderMd(md){
   t = t.replace(/^## (.+)$/gm, "<h2>$1</h2>");
   t = t.replace(/^# (.+)$/gm,  "<h1>$1</h1>");
 
-  // ── Blockquote ("> ⚠️ ...") ──────────────────────────────────────────
-  t = t.replace(/^&gt;\s*(.+)$/gm,"<blockquote>$1</blockquote>");
+  // ── Blockquote ───────────────────────────────────────────────────────
+  t = t.replace(/^&gt;\\s*(.+)$/gm,"<blockquote>$1</blockquote>");
 
   // ── HR ───────────────────────────────────────────────────────────────
   t = t.replace(/^---$/gm,"<hr>");
@@ -1028,9 +1026,9 @@ function renderMd(md){
 
   // ── Lists ─────────────────────────────────────────────────────────────
   t = t.replace(/^- (.+)$/gm,"<li>$1</li>");
-  t = t.replace(/(<li>[\s\S]+?<\\/li>)(?=\\n(?!<li>)|$)/g, s=>"<ul>"+s+"</ul>");
+  t = t.replace(/(<li>.*?<\\/li>)(\\n<li>.*?<\\/li>)*/g, function(s){ return "<ul>"+s+"</ul>"; });
 
-  // ── Paragraphs (double newline) ───────────────────────────────────────
+  // ── Paragraphs ───────────────────────────────────────────────────────
   t = t.replace(/\\n\\n/g,"</p><p>");
   t = t.replace(/\\n/g,"<br>");
   return "<p>" + t + "</p>";
