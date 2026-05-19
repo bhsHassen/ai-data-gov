@@ -126,16 +126,39 @@ def _assemble(project_name: str, specs: list[dict]) -> str:
 OUTPUT_DIR = Path("output")
 
 
+def _load_existing_specs(spec_path: Path) -> dict[str, dict]:
+    """
+    Re-parse an existing _SPEC.md to recover already-analysed fields.
+    Returns {field_name: {field_name, markdown, found}}.
+    """
+    if not spec_path.exists():
+        return {}
+    text   = spec_path.read_text(encoding="utf-8")
+    result = {}
+    # Each field section starts with "### FIELD_NAME"
+    parts  = re.split(r"\n---\n", text)
+    for part in parts:
+        m = re.match(r"^#+\s+([\w-]+)", part.strip())
+        if m:
+            name  = m.group(1).upper()
+            found = "non trouvé" not in part.lower() and "aucune alimentation" not in part.lower()
+            result[name] = {"field_name": name, "markdown": part.strip(), "found": found}
+    return result
+
+
 def run_pipeline(
     project_folder: Path,
     q: queue.Queue | None = None,
+    field_filter: list[str] | None = None,
 ) -> Path:
     """
-    Run the full field-by-field specification pipeline.
+    Run the field-by-field specification pipeline.
 
     Args:
         project_folder: folder containing the 4 input files.
-        q: optional queue for SSE events. Each event is a dict.
+        q:              optional queue for SSE events.
+        field_filter:   if set, only process these field names (case-insensitive).
+                        None = process all leaf fields.
 
     Returns:
         Path to the generated spec file.
@@ -162,13 +185,25 @@ def run_pipeline(
     log("pipeline", f"target    : {bundle.target_path.name}")
 
     # ── Parse target fields ──────────────────────────────────────────────── #
-    target_fields = bundle.target_fields()
-    if not target_fields:
+    all_fields = bundle.target_fields()
+    if not all_fields:
         msg = "Aucun champ trouvé dans le copybook cible."
         emit({"type": "error", "message": msg})
         raise ValueError(msg)
 
-    log("pipeline", f"{len(target_fields)} champs cible à spécifier")
+    # Apply filter
+    if field_filter:
+        wanted = {n.upper() for n in field_filter}
+        target_fields = [f for f in all_fields if f.name.upper() in wanted]
+        if not target_fields:
+            msg = f"Aucun champ correspondant au filtre : {field_filter}"
+            emit({"type": "error", "message": msg})
+            raise ValueError(msg)
+    else:
+        target_fields = all_fields
+
+    log("pipeline", f"{len(target_fields)} champ(s) à spécifier"
+                    + (f" (filtre: {field_filter})" if field_filter else ""))
     emit({"type": "start", "total": len(target_fields),
           "fields": [f.name for f in target_fields]})
 
@@ -178,8 +213,13 @@ def run_pipeline(
     input_desc   = bundle.input_desc
     target_desc  = bundle.target_desc
 
+    # ── Load existing partial results (for incremental runs) ──────────────── #
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path     = OUTPUT_DIR / f"{project_name.upper()}_SPEC.md"
+    existing_specs: dict[str, dict] = _load_existing_specs(out_path)
+
     # ── Field-by-field LLM calls ─────────────────────────────────────────── #
-    specs: list[dict] = []
+    new_specs: list[dict] = []
     for i, fld in enumerate(target_fields, 1):
         log("doc", f"[{i}/{len(target_fields)}] {fld.name}")
         emit({"type": "field_start", "field": fld.name,
@@ -192,31 +232,37 @@ def run_pipeline(
                 input_desc   = input_desc,
                 target_desc  = target_desc,
             )
-            specs.append({
+            spec = {
                 "field_name": fld.name,
                 "markdown":   result.markdown,
                 "found":      result.found,
-            })
+            }
+            new_specs.append(spec)
+            existing_specs[fld.name] = spec          # update cache
             emit({"type": "field_done", "field": fld.name,
                   "index": i, "found": result.found,
                   "markdown": result.markdown})
             log("doc", f"  {'✓ trouvé' if result.found else '○ non trouvé'}")
         except Exception as e:
             log("error", f"  {fld.name}: {e}")
-            fallback_md = f"### {fld.name}\\n\\n**Erreur** : {e}"
-            specs.append({"field_name": fld.name, "markdown": fallback_md, "found": False})
+            fallback_md = f"### {fld.name}\n\n**Erreur** : {e}"
+            spec = {"field_name": fld.name, "markdown": fallback_md, "found": False}
+            new_specs.append(spec)
+            existing_specs[fld.name] = spec
             emit({"type": "field_done", "field": fld.name, "index": i,
                   "found": False, "markdown": fallback_md})
 
-    # ── Assemble & save ──────────────────────────────────────────────────── #
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUTPUT_DIR / f"{project_name.upper()}_SPEC.md"
-    doc = _assemble(project_name, specs)
+    # ── Assemble ALL known specs (existing + new) & save ─────────────────── #
+    # Preserve original field order from all_fields
+    merged = [existing_specs[f.name] for f in all_fields if f.name in existing_specs]
+
+    doc = _assemble(project_name, merged)
     out_path.write_text(doc, encoding="utf-8")
 
-    log("pipeline", f"spec saved → {out_path}")
+    log("pipeline", f"spec saved → {out_path}  ({len(merged)}/{len(all_fields)} champs)")
     emit({"type": "done", "output": str(out_path),
-          "found": sum(1 for s in specs if s["found"]),
-          "total": len(specs)})
+          "found": sum(1 for s in merged if s["found"]),
+          "total": len(merged),
+          "total_fields": len(all_fields)})
 
     return out_path

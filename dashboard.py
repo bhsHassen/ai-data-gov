@@ -39,13 +39,13 @@ _runs_lock = threading.Lock()
 #  Background runner
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _run_bg(run_id: str, project_folder: Path):
+def _run_bg(run_id: str, project_folder: Path, field_filter: list[str] | None = None):
     with _runs_lock:
         q = _runs.get(run_id)
     if q is None:
         return
     try:
-        run_pipeline(project_folder, q)
+        run_pipeline(project_folder, q, field_filter=field_filter)
     except Exception as e:
         q.put({"type": "error", "message": str(e)})
     finally:
@@ -122,6 +122,12 @@ def api_fields(project: str):
 
 @app.route("/api/run/<project>", methods=["POST"])
 def api_run(project: str):
+    """
+    Body (JSON, optional):
+      {}                          → analyse all fields
+      {"field":  "FIELD_NAME"}    → analyse one field
+      {"fields": ["F1","F2",...]} → analyse a subset
+    """
     folder = INPUT_DIR / project
     if not folder.exists():
         return jsonify({"error": "project not found"}), 404
@@ -130,14 +136,21 @@ def api_run(project: str):
     if missing:
         return jsonify({"error": "missing files", "missing": missing}), 400
 
+    body         = request.get_json(silent=True) or {}
+    field_filter = None
+    if "field" in body:
+        field_filter = [body["field"]]
+    elif "fields" in body:
+        field_filter = body["fields"]
+
     run_id = str(uuid.uuid4())
     q: queue.Queue = queue.Queue()
     with _runs_lock:
         _runs[run_id] = q
 
-    t = threading.Thread(target=_run_bg, args=(run_id, folder), daemon=True)
+    t = threading.Thread(target=_run_bg, args=(run_id, folder, field_filter), daemon=True)
     t.start()
-    return jsonify({"run_id": run_id})
+    return jsonify({"run_id": run_id, "field_filter": field_filter})
 
 
 @app.route("/api/events/<run_id>")
@@ -292,6 +305,30 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
 .btn-run:hover{background:#1d4ed8}
 .btn-run:disabled{background:#93c5fd;cursor:not-allowed}
 
+/* Field table */
+.field-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+.field-table th{text-align:left;padding:7px 10px;font-size:11px;font-weight:bold;
+                text-transform:uppercase;letter-spacing:.5px;color:#64748b;
+                border-bottom:2px solid #e2e8f0;background:#f8fafc}
+.field-table td{padding:7px 10px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+.field-table tr:hover td{background:#f8fafc}
+.field-table tr.ft-running td{background:#eff6ff}
+
+.ft-pic{font-family:Consolas,monospace;font-size:11px;color:#475569}
+.ft-name{font-family:Consolas,monospace;font-weight:600;color:#1e293b}
+
+.badge{display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600}
+.badge-idle  {background:#f1f5f9;color:#64748b}
+.badge-run   {background:#dbeafe;color:#1d4ed8}
+.badge-ok    {background:#dcfce7;color:#15803d}
+.badge-miss  {background:#fef9c3;color:#854d0e}
+.badge-err   {background:#fee2e2;color:#991b1b}
+
+.btn-analyse{padding:4px 12px;background:#2563eb;color:#fff;border:none;
+             font-size:11px;font-weight:bold;cursor:pointer;border-radius:3px}
+.btn-analyse:hover{background:#1d4ed8}
+.btn-analyse:disabled{background:#93c5fd;cursor:not-allowed}
+
 /* Progress panel */
 .progress-bar-wrap{background:#e2e8f0;border-radius:4px;height:8px;margin-bottom:16px}
 .progress-bar{background:#2563eb;height:8px;border-radius:4px;
@@ -406,17 +443,35 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
           <div class="setup-grid" id="setup-grid"></div>
         </div>
 
+        <!-- Field table -->
         <div class="card" id="fields-preview-card" style="display:none">
-          <div class="card-title">Champs cible d&eacute;tect&eacute;s (<span id="fields-count">0</span>)</div>
-          <div id="fields-preview" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+          <div class="card-title" style="justify-content:space-between">
+            <span>Champs cible &mdash; <span id="fields-count">0</span> champ(s)</span>
+            <div style="display:flex;gap:8px">
+              <button id="btn-run-all" class="btn-run" style="padding:6px 16px;font-size:12px"
+                      onclick="startRunAll()">
+                &#9654;&#9654; Analyser tout
+              </button>
+              <button style="padding:6px 12px;background:#f8fafc;border:1px solid #d1d5db;
+                             border-radius:4px;font-size:12px;cursor:pointer"
+                      onclick="loadFieldsPreview(_currentProject)">&#8635;</button>
+            </div>
+          </div>
+          <table class="field-table" id="field-table">
+            <thead>
+              <tr>
+                <th style="width:36px"></th>
+                <th>Champ</th>
+                <th>PIC</th>
+                <th style="width:110px">Statut</th>
+                <th style="width:80px"></th>
+              </tr>
+            </thead>
+            <tbody id="field-tbody"></tbody>
+          </table>
         </div>
 
-        <div style="display:flex;align-items:center;gap:12px">
-          <button class="btn-run" id="btn-run" onclick="startRun()" disabled>
-            &#9654; G&eacute;n&eacute;rer la sp&eacute;cification
-          </button>
-          <span id="run-msg" style="font-size:12px;color:#64748b"></span>
-        </div>
+        <span id="run-msg" style="font-size:12px;color:#64748b"></span>
       </div>
     </div>
 
@@ -505,6 +560,7 @@ function chip(present, label){
 }
 
 async function selectProject(name){
+  if(_currentProject !== name) _fieldState = {};  // reset state on project change
   _currentProject = name;
   document.getElementById("no-project-card").style.display="none";
   document.getElementById("project-setup").style.display="";
@@ -546,37 +602,77 @@ async function selectProject(name){
   if(proj.spec){ refreshSpecs(); }
 }
 
+// ── Field table ───────────────────────────────────────────────────────────
+// State: fieldName → {status:"idle"|"running"|"ok"|"miss"|"err", markdown}
+let _fieldState = {};
+let _allFields  = [];
+
 async function loadFieldsPreview(name){
   const card    = document.getElementById("fields-preview-card");
-  const wrap    = document.getElementById("fields-preview");
   const counter = document.getElementById("fields-count");
-  const res  = await fetch("/api/fields/" + encodeURIComponent(name));
+  const tbody   = document.getElementById("field-tbody");
+  const res = await fetch("/api/fields/" + encodeURIComponent(name));
   if(!res.ok){ card.style.display="none"; return; }
   const data = await res.json();
-  const leaves = (data.fields||[]).filter(f=>!f.is_group);
-  counter.textContent = leaves.length;
-  if(!leaves.length){ card.style.display="none"; return; }
+  _allFields = (data.fields||[]).filter(f=>!f.is_group);
+  counter.textContent = _allFields.length;
+  if(!_allFields.length){ card.style.display="none"; return; }
   card.style.display="";
-  wrap.innerHTML = leaves.map(f =>
-    `<span style="background:#f0f6ff;color:#1d4ed8;padding:3px 9px;
-                  border-radius:12px;font-size:11px;font-family:Consolas,monospace">
-      ${esc(f.name)}
-     </span>`
-  ).join("");
+  // Keep existing status if we already ran some fields
+  _allFields.forEach(f => {
+    if(!_fieldState[f.name]) _fieldState[f.name] = {status:"idle", markdown:""};
+  });
+  renderFieldTable();
+}
+
+function renderFieldTable(){
+  const tbody = document.getElementById("field-tbody");
+  const busy  = Object.values(_fieldState).some(s=>s.status==="running");
+  tbody.innerHTML = _allFields.map(f => {
+    const st  = _fieldState[f.name] || {status:"idle"};
+    const badgeCls = {idle:"badge-idle",running:"badge-run",
+                      ok:"badge-ok",miss:"badge-miss",err:"badge-err"}[st.status]||"badge-idle";
+    const badgeTxt = {idle:"—",running:"&#9654; analyse…",
+                      ok:"&#10003; trouvé",miss:"&#9675; non trouvé",err:"&#10007; erreur"}[st.status]||"—";
+    const spin = st.status==="running" ? "&#8987; " : "";
+    return `<tr id="ftr-${esc(f.name)}" class="${st.status==="running"?"ft-running":""}">
+      <td style="text-align:center;font-size:13px">${spin}</td>
+      <td class="ft-name">${esc(f.name)}</td>
+      <td class="ft-pic">${esc(f.pic||"—")}</td>
+      <td><span class="badge ${badgeCls}">${badgeTxt}</span></td>
+      <td>
+        <button class="btn-analyse" onclick="startRunField('${esc(f.name)}')"
+                ${busy||st.status==="running"?"disabled":""}>
+          &#9654; Analyser
+        </button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+function setFieldStatus(name, status, markdown){
+  if(!_fieldState[name]) _fieldState[name]={status:"idle",markdown:""};
+  _fieldState[name].status   = status;
+  if(markdown) _fieldState[name].markdown = markdown;
+  renderFieldTable();
 }
 
 // ── Run pipeline ──────────────────────────────────────────────────────────
-async function startRun(){
+async function _doRun(fieldFilter){
   if(!_currentProject) return;
-  const btn = document.getElementById("btn-run");
-  btn.disabled = true;
+  // Disable all analyse buttons
+  _allFields.forEach(f => setFieldStatus(f.name,
+    fieldFilter && !fieldFilter.includes(f.name) ? (_fieldState[f.name]?.status||"idle") : "running"));
 
+  const body = fieldFilter
+    ? JSON.stringify({fields: fieldFilter})
+    : "{}";
   const res  = await fetch("/api/run/" + encodeURIComponent(_currentProject),
-                           {method:"POST"});
+    {method:"POST", headers:{"Content-Type":"application/json"}, body});
   const data = await res.json();
   if(!res.ok){
     alert("Erreur : " + (data.error||"?"));
-    btn.disabled = false;
+    (fieldFilter||_allFields.map(f=>f.name)).forEach(n=>setFieldStatus(n,"idle"));
     return;
   }
   _runId = data.run_id;
@@ -586,8 +682,17 @@ async function startRun(){
   document.getElementById("field-list").innerHTML = "";
   document.getElementById("prog-bar").style.width = "0";
   document.getElementById("prog-label").textContent = "Initialisation…";
-  showTab("progress");
   connectSSE(_runId);
+}
+
+async function startRunAll(){
+  document.getElementById("btn-run-all").disabled = true;
+  await _doRun(null);
+}
+
+async function startRunField(name){
+  setFieldStatus(name, "running");
+  await _doRun([name]);
 }
 
 // ── SSE ───────────────────────────────────────────────────────────────────
@@ -596,14 +701,15 @@ function connectSSE(runId){
   _sse = new EventSource("/api/events/" + runId);
   _sse.onmessage = e => {
     const ev = JSON.parse(e.data);
+
     if(ev.type === "start"){
       _totalFields = ev.total;
       document.getElementById("prog-label").textContent =
-        "0 / " + ev.total + " champs traités";
-      // Pre-populate field list
+        "0 / " + ev.total + " champ(s) en cours";
+      // Pre-populate progress list
       const list = document.getElementById("field-list");
       list.innerHTML = "";
-      (ev.fields||[]).forEach((name,i) => {
+      (ev.fields||[]).forEach(name => {
         const row = document.createElement("div");
         row.className = "field-row";
         row.id = "fr-" + name;
@@ -613,6 +719,7 @@ function connectSSE(runId){
           `<div class="field-pic-cell" id="fpic-${esc(name)}"></div>`;
         list.appendChild(row);
         _fieldRows[name] = row;
+        setFieldStatus(name, "running");
       });
     }
     else if(ev.type === "field_start"){
@@ -628,6 +735,7 @@ function connectSSE(runId){
     }
     else if(ev.type === "field_done"){
       _doneFields++;
+      // Update progress list row
       const row = _fieldRows[ev.field];
       if(row){
         row.className = "field-row " + (ev.found ? "done-ok" : "done-miss");
@@ -639,12 +747,14 @@ function connectSSE(runId){
       document.getElementById("prog-bar").style.width = pct + "%";
       document.getElementById("prog-label").textContent =
         _doneFields + " / " + _totalFields + " champs traités (" + pct + "%)";
+      // Update field table badge
+      setFieldStatus(ev.field, ev.found ? "ok" : "miss", ev.markdown||"");
     }
     else if(ev.type === "done"){
       _sse.close();
-      document.getElementById("btn-run").disabled = false;
+      document.getElementById("btn-run-all").disabled = false;
       document.getElementById("prog-label").textContent =
-        "&#10003; Terminé — " + ev.found + "/" + ev.total + " champs alimentés";
+        "&#10003; Terminé — " + ev.found + "/" + ev.total + " champ(s) alimenté(s)";
       refreshSpecs().then(() => {
         const sel = document.getElementById("spec-select");
         const specName = _currentProject.toUpperCase() + "_SPEC.md";
@@ -652,15 +762,24 @@ function connectSSE(runId){
           if(o.value === specName){ sel.value = specName; break; }
         }
         loadSpec(sel.value);
-        showTab("spec");
       });
       loadProjects();
+      renderFieldTable();  // re-enable buttons
     }
     else if(ev.type === "error"){
       document.getElementById("prog-label").textContent = "Erreur : " + ev.message;
-      document.getElementById("btn-run").disabled = false;
+      document.getElementById("btn-run-all").disabled = false;
       if(_sse) _sse.close();
+      // reset running fields to idle
+      Object.keys(_fieldState).forEach(n => {
+        if(_fieldState[n].status === "running") _fieldState[n].status = "idle";
+      });
+      renderFieldTable();
     }
+  };
+  _sse.onerror = () => {
+    document.getElementById("btn-run-all").disabled = false;
+    renderFieldTable();
   };
 }
 
