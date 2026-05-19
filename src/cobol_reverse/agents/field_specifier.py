@@ -11,21 +11,104 @@ Output per field (Markdown):
     - Règle 2 : ...   [ligne Y]
     - Contrôles : ...
 
-The agent is instructed to:
-  - Cite line numbers for every rule found
-  - Distinguish MOVE (direct) / COMPUTE (calculated) / DEFAULT (INITIALIZE/VALUE)
-  - List conditions (IF / EVALUATE / WHEN) that gate each assignment
-  - Report validation rules and error-handling found for the field
-  - Say explicitly "non trouvé dans le code" if the field has no assignment
-
-The agent must NOT invent assignments — every claim must be traceable.
+Context strategy (token budget):
+    - Copybooks are sent in full (small).
+    - COBOL source  : only lines that mention the field name ± CONTEXT_LINES,
+      plus the DATA DIVISION header block (first lines until PROCEDURE DIVISION).
+    - Compiled listing: same extraction, hard-capped at MAX_COMPILED_CHARS.
+    - If no occurrence is found the full source is sent but truncated to
+      MAX_SOURCE_CHARS.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from ..llm import build_client, get_model
 from ..parsers.copybook import CopyField
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Tuneable limits
+# ─────────────────────────────────────────────────────────────────────────────
+
+CONTEXT_LINES      = 40    # lines before/after each occurrence in source
+MAX_SOURCE_CHARS   = 80_000   # hard cap on source snippet sent to LLM
+MAX_COMPILED_CHARS = 40_000   # hard cap on compiled listing sent
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Context extraction helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _extract_context(text: str, field_name: str,
+                     context: int = CONTEXT_LINES,
+                     max_chars: int = MAX_SOURCE_CHARS) -> tuple[str, int]:
+    """
+    Return (snippet, occurrence_count).
+
+    Finds every line that contains `field_name` (word-boundary match),
+    collects a window of `context` lines around each hit, deduplicates,
+    and joins with a separator.  If no hit is found, returns the original
+    text truncated to max_chars.
+    """
+    lines = text.splitlines()
+    n     = len(lines)
+    pat   = re.compile(r"\b" + re.escape(field_name) + r"\b", re.IGNORECASE)
+
+    hit_indices: list[int] = [i for i, ln in enumerate(lines) if pat.search(ln)]
+
+    if not hit_indices:
+        truncated = text[:max_chars]
+        if len(text) > max_chars:
+            truncated += f"\n[... truncated — {len(lines)} lines total ...]"
+        return truncated, 0
+
+    # Merge overlapping windows
+    selected: list[bool] = [False] * n
+    for idx in hit_indices:
+        lo = max(0, idx - context)
+        hi = min(n, idx + context + 1)
+        for j in range(lo, hi):
+            selected[j] = True
+
+    # Build snippet with line numbers and gap markers
+    parts: list[str] = []
+    in_gap = False
+    for i, (keep, line) in enumerate(zip(selected, lines), 1):
+        if keep:
+            in_gap = False
+            parts.append(f"{i:>6}  {line}")
+        else:
+            if not in_gap:
+                parts.append("       [...]")
+                in_gap = True
+
+    snippet = "\n".join(parts)
+    if len(snippet) > max_chars:
+        snippet = snippet[:max_chars] + "\n[... truncated ...]"
+    return snippet, len(hit_indices)
+
+
+def _data_division_header(source: str, max_lines: int = 80) -> str:
+    """
+    Extract the DATA DIVISION block (up to PROCEDURE DIVISION or max_lines).
+    Gives the LLM field definitions even when the field itself has no MOVE.
+    """
+    lines  = source.splitlines()
+    start  = None
+    end    = len(lines)
+    for i, ln in enumerate(lines):
+        uln = ln.upper()
+        if start is None and "DATA DIVISION" in uln:
+            start = i
+        elif start is not None and "PROCEDURE DIVISION" in uln:
+            end = i
+            break
+    if start is None:
+        return ""
+    block = lines[start: min(end, start + max_lines)]
+    return "\n".join(block)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -72,7 +155,7 @@ def _build_prompt(
     input_desc:   str,
     target_desc:  str,
 ) -> str:
-    """Builds the user prompt for one field."""
+    """Builds the user prompt for one field — with focused context."""
 
     # PIC info for context
     pic_info = f"PIC {field.pic}" if field.pic else "(groupe, pas de PIC)"
@@ -83,26 +166,45 @@ def _build_prompt(
     if field.values_88:
         pic_info += f"\n   Valeurs 88 : {', '.join(field.values_88[:10])}"
 
+    # Focused source extract
+    source_snippet, src_hits = _extract_context(source_cobol, field.name)
+    data_div = _data_division_header(source_cobol)
+    src_note = (f"({src_hits} occurrence(s) trouvée(s) — fenêtre ±{CONTEXT_LINES} lignes)"
+                if src_hits else "(aucune occurrence directe — source complet tronqué)")
+
+    # Focused compiled extract (lighter)
+    compiled_snippet, cmp_hits = _extract_context(
+        compiled, field.name,
+        context=20,
+        max_chars=MAX_COMPILED_CHARS,
+    ) if compiled else ("(absent)", 0)
+    cmp_note = f"({cmp_hits} occurrence(s))" if compiled else "(non fourni)"
+
+    data_section = (
+        f"\n## En-tête DATA DIVISION (définitions)\n```\n{data_div}\n```\n"
+        if data_div else ""
+    )
+
     return f"""\
 ## Champ à analyser
 Nom   : {field.name}
 Type  : {pic_info}
 Niveau: {field.level}
 
-## Structure des champs INPUT (copybook)
+## Structure INPUT (copybook)
 {input_desc}
 
-## Structure des champs TARGET / OUTPUT (copybook)
+## Structure TARGET / OUTPUT (copybook)
 {target_desc}
+{data_section}
+## Extraits COBOL source {src_note}
+```
+{source_snippet}
+```
 
-## Code COBOL source
+## Extraits listing compilé {cmp_note}
 ```
-{source_cobol}
-```
-
-## Programme compilé (listing)
-```
-{compiled}
+{compiled_snippet}
 ```
 
 ---
