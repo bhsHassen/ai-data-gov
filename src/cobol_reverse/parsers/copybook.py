@@ -306,92 +306,124 @@ def parse_copybook(text: str) -> list[CopyField]:
 
 def parse_greedy(text: str) -> list[CopyField]:
     """
-    Greedy scanner for mainframe compiler listings and other noisy formats.
+    Greedy line-by-line scanner for IBM mainframe compiler listings.
 
-    Also extracts business labels from comment lines of the pattern:
-        *----* CODE BANQUE *-----------001*
-        *----* NUMERO DE DOSSIER *-----023*
-    and associates each label with the next field definition found.
+    Format observed:
+        006208C     *-----* TYPE DE DISPONIBILITE *---------*
+        006209C     10   FILLER         PIC X(001) VALUE ZERO.
+        006220C     05   F1728          *----* CODE INSTRUCTIONS COUPON *--134*
+        006221C                         PIC X(002) VALUE SPACES.
+        006222C     *-----* DATE DE TRAITEMENT *---------136*
+        006223C     05   F1763-1.
+        006224C     10   F1763          PIC 9(008) VALUE ZERO.
 
-    Returns deduplicated CopyField list ordered by first occurrence.
+    Rules:
+    - Label (*---* LIBELLE *---N*) can be on its own comment line OR on the
+      same line as a group/field definition.
+    - PIC can be on the same line or on the VERY NEXT line (continuation).
+    - pending_label is reset ONLY when a leaf field (with PIC) consumes it;
+      group items (no PIC) preserve it for the next leaf.
+    - FILLER fields are skipped (no business meaning).
     """
-    # ── Step 1: build description map from comment labels ─────────────────
-    # Pattern: *---* LABEL TEXT *---NNN* (with dashes/stars as separators)
+    # ── Extract logical lines (strip 6-digit listing prefix) ──────────────
+    lines: list[str] = []
+    for raw in text.splitlines():
+        m = re.match(r"^\s*\d{6}[A-Za-z]?\s+(.*)", raw)
+        if m:
+            lines.append(m.group(1).rstrip())
+        else:
+            stripped = raw.strip()
+            # Skip pure object-code lines (8 hex digits + offset)
+            if stripped and not re.match(r"^[0-9A-Fa-f]{8}\s", raw):
+                lines.append(stripped)
+
+    # ── Patterns ──────────────────────────────────────────────────────────
+    # Label: *---* LIBELLE METIER *---NNN* (dashes, stars, optional number)
     PAT_LABEL = re.compile(
-        r"\*[-* ]+([A-Z][A-Z0-9 '/.()\-]{2,40?}?)\s*\*[-*\s]*\d+\s*\*",
+        r"\*[-*]+\s*([A-Z][A-Z0-9 \'/.()\-]{1,50}?)\s*[-*]+\s*\d*\s*\*",
         re.I,
     )
-    # Map: character position in raw text → description label
-    label_positions: list[tuple[int, str]] = []
-    for m in PAT_LABEL.finditer(text):
-        label = m.group(1).strip()
-        # Filter out noise (too many special chars, pure separators)
-        if re.search(r"[A-Za-z]{2}", label):
-            label_positions.append((m.start(), label))
+    # Field definition at start of (stripped) content: level  NAME
+    PAT_FIELD = re.compile(r"^(\d{1,2})\s+([\w][\w-]*)", re.I)
+    # PIC clause anywhere on a line
+    PAT_PIC   = re.compile(r"\bPIC(?:TURE)?\s+(?:IS\s+)?([^\s.,]+)", re.I)
 
-    # ── Step 2: normalise listing noise ───────────────────────────────────
-    clean = re.sub(r"\b\d{6}[A-Z]?\s+", " ", text)
-    clean = re.sub(r"\b[0-9A-F]{8}\b", " ", clean)
-    clean = re.sub(r"[*\-]{4,}", " ", clean)
+    _SKIP = {
+        "COPY","MOVE","IF","THEN","ELSE","END","PERFORM","CALL",
+        "SECTION","DIVISION","PROCEDURE","PROGRAM","AUTHOR",
+        "FILLER","VALUE","ZERO","ZEROS","SPACES","SPACE",
+        "HIGH-VALUES","LOW-VALUES","ALL",
+    }
 
-    # ── Step 3: find all PIC fields ───────────────────────────────────────
-    PAT_FIELD = re.compile(
-        r"\b(\d{1,2})\s+([\w][\w-]*)\s+.*?PIC(?:TURE)?\s+(?:IS\s+)?([^\s.,]+)",
-        re.I,
-    )
-
-    _SKIP = {"COPY","MOVE","IF","THEN","ELSE","END","PERFORM","CALL",
-             "SECTION","DIVISION","PROCEDURE","PROGRAM","AUTHOR","FILLER"}
-
-    seen:   set[str] = set()
+    pending_label: str | None = None
+    seen:  set[str]      = set()
     fields: list[CopyField] = []
 
-    for m in PAT_FIELD.finditer(clean):
-        level = int(m.group(1))
-        name  = m.group(2).upper().rstrip(".")
-        pic   = m.group(3).upper()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
 
-        if level == 88 or name in _SKIP:
-            continue
-        if level < 1 or level > 77:
-            continue
+        # ── 1. Extract label if present on this line ───────────────────
+        lm = PAT_LABEL.search(line)
+        if lm:
+            candidate = lm.group(1).strip()
+            # Must contain at least 2 letters (filter pure separators)
+            if re.search(r"[A-Za-z]{2}", candidate) and len(candidate) > 2:
+                pending_label = candidate
 
-        key = f"{level}:{name}"
-        if key in seen:
-            continue
-        seen.add(key)
+        # ── 2. Check for field definition ─────────────────────────────
+        fm = PAT_FIELD.match(line)
+        if fm:
+            level = int(fm.group(1))
+            name  = fm.group(2).upper().rstrip(".")
 
-        # ── Associate nearest preceding label ──────────────────────────
-        desc = None
-        pos  = m.start()
-        # Find the closest label that appears before this field (within 500 chars)
-        best_dist = 500
-        for lpos, lbl in label_positions:
-            dist = pos - lpos
-            if 0 < dist < best_dist:
-                best_dist = dist
-                desc = lbl
+            if level == 88 or level > 77 or name in _SKIP:
+                i += 1
+                continue
 
-        # Get surrounding text for USAGE / OCCURS
-        ctx = clean[max(0, m.start()-10): m.end()+80]
-        um  = _RE_USAGE.search(ctx) or _RE_COMP_SHORT.search(ctx)
-        om  = _RE_OCCURS.search(ctx)
+            key = f"{level}:{name}"
+            if key in seen:
+                i += 1
+                continue
 
-        fields.append(CopyField(
-            level       = level,
-            name        = name,
-            pic         = pic,
-            pic_type    = _pic_type(pic),
-            length      = _pic_length(pic),
-            usage       = um.group(1).upper() if um else None,
-            occurs      = int(om.group(1))    if om else None,
-            occurs_dep  = None,
-            redefines   = None,
-            values_88   = [],
-            source_line = 0,
-            is_group    = False,
-            description = desc,
-        ))
+            # ── 3. Find PIC: same line, or next line (continuation) ────
+            pic: str | None = None
+            pm = PAT_PIC.search(line)
+            if pm:
+                pic = pm.group(1).upper()
+            else:
+                # Look ahead 1 line only — a continuation line has no
+                # level-number prefix and no new field definition
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if not PAT_FIELD.match(next_line):
+                        pm2 = PAT_PIC.search(next_line)
+                        if pm2:
+                            pic = pm2.group(1).upper()
+
+            if pic:
+                seen.add(key)
+                um = _RE_USAGE.search(line) or _RE_COMP_SHORT.search(line)
+                om = _RE_OCCURS.search(line)
+                fields.append(CopyField(
+                    level       = level,
+                    name        = name,
+                    pic         = pic,
+                    pic_type    = _pic_type(pic),
+                    length      = _pic_length(pic),
+                    usage       = um.group(1).upper() if um else None,
+                    occurs      = int(om.group(1))    if om else None,
+                    occurs_dep  = None,
+                    redefines   = None,
+                    values_88   = [],
+                    source_line = 0,
+                    is_group    = False,
+                    description = pending_label,
+                ))
+                pending_label = None   # consumed — reset for next field
+            # Groups (no PIC) intentionally do NOT reset pending_label
+
+        i += 1
 
     return fields
 
