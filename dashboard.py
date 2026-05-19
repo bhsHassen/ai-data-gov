@@ -173,11 +173,13 @@ def api_test_llm():
         resp   = client.chat.completions.create(
             model       = model,
             temperature = 0,
-            max_tokens  = 10,
+            max_tokens  = 64,
+            extra_body  = {"enable_thinking": False},
             messages    = [{"role": "user", "content": "Reply with OK only."}],
         )
         elapsed = round((time.time() - t0) * 1000)
-        answer  = resp.choices[0].message.content.strip()
+        msg     = resp.choices[0].message
+        answer  = (msg.content or getattr(msg, "reasoning_content", None) or "(empty)").strip()
         return jsonify({
             "ok":      True,
             "model":   model,

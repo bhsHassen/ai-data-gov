@@ -143,13 +143,15 @@ def specify_field(
     resp = client.chat.completions.create(
         model       = model,
         temperature = temperature,
+        extra_body  = {"enable_thinking": False},
         messages    = [
             {"role": "system",  "content": system},
             {"role": "user",    "content": user},
         ],
     )
 
-    md = resp.choices[0].message.content.strip()
-    found = "non trouvé" not in md.lower() and "aucune alimentation" not in md.lower()
+    msg = resp.choices[0].message
+    md  = (msg.content or getattr(msg, "reasoning_content", None) or "").strip()
+    found = bool(md) and "non trouvé" not in md.lower() and "aucune alimentation" not in md.lower()
 
     return FieldSpec(field_name=field.name, markdown=md, found=found)
