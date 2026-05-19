@@ -589,10 +589,10 @@ async function selectProject(name){
      </div>`
   ).join("");
 
-  // Run button
-  const btn = document.getElementById("btn-run");
-  const msg = document.getElementById("run-msg");
-  btn.disabled = !proj.ready;
+  // Run-all button + message
+  const btnAll = document.getElementById("btn-run-all");
+  const msg    = document.getElementById("run-msg");
+  if(btnAll) btnAll.disabled = !proj.ready;
   msg.textContent = proj.ready ? "" : "Ajoutez les fichiers manquants pour continuer.";
 
   // Fields preview
