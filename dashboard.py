@@ -205,6 +205,126 @@ def api_spec(filename: str):
     return Response(p.read_text(encoding="utf-8"), mimetype="text/plain")
 
 
+@app.route("/api/export-pdf/<path:filename>")
+def api_export_pdf(filename: str):
+    """Return a print-optimised HTML page for the spec — browser prints to PDF."""
+    import html as htmllib
+    if ".." in filename or not filename.endswith(".md"):
+        return "invalid", 400
+    p = OUTPUT_DIR / filename
+    if not p.exists():
+        return "not found", 404
+    md = p.read_text(encoding="utf-8")
+
+    # Convert Markdown to HTML (minimal, self-contained)
+    def md_to_html(text: str) -> str:
+        t = (text
+             .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+        import re
+        t = re.sub(r"^# (.+)$",    r"<h1>\1</h1>",      t, flags=re.M)
+        t = re.sub(r"^## (.+)$",   r"<h2>\1</h2>",      t, flags=re.M)
+        t = re.sub(r"^### (.+)$",  r"<h3>\1</h3>",      t, flags=re.M)
+        t = re.sub(r"^> (.+)$",    r"<blockquote>\1</blockquote>", t, flags=re.M)
+        t = re.sub(r"^---$",       r"<hr>",             t, flags=re.M)
+        t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
+        t = re.sub(r"`([^`]+)`",   r"<code>\1</code>",  t)
+        t = re.sub(r"^\|(.+)\|$",  _table_row,          t, flags=re.M)
+        t = re.sub(r"^- (.+)$",    r"<li>\1</li>",      t, flags=re.M)
+        t = re.sub(r"(<li>.*?</li>\n?)+", lambda m: "<ul>" + m.group(0) + "</ul>", t, flags=re.S)
+        t = t.replace("\n\n", "</p><p>").replace("\n", "<br>")
+        return t
+
+    def _table_row(m):
+        cols = [c.strip() for c in m.group(1).split("|")]
+        if all(re.match(r"[-: ]+$", c) for c in cols if c):
+            return ""   # separator row
+        tag = "th" if not hasattr(_table_row, "_in_tbody") else "td"
+        cells = "".join(f"<{tag}>{c}</{tag}>" for c in cols if c != "")
+        _table_row._in_tbody = True
+        return f"<tr>{cells}</tr>"
+    import re
+
+    body_html = md_to_html(md)
+    spec_title = htmllib.escape(filename.replace("_SPEC.md", "").replace("_", " "))
+
+    page = f"""<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Spécification {spec_title}</title>
+<style>
+  @page {{ size: A4; margin: 20mm 18mm; }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: Arial, sans-serif; font-size: 10pt; color: #1e293b;
+          line-height: 1.55; background: #fff; }}
+  .header {{ border-bottom: 2px solid #2563eb; padding-bottom: 8px;
+             margin-bottom: 18px; display: flex; justify-content: space-between;
+             align-items: flex-end; }}
+  .header-title {{ font-size: 14pt; font-weight: bold; color: #2563eb; }}
+  .header-sub {{ font-size: 8pt; color: #64748b; }}
+  h1 {{ font-size: 13pt; color: #2563eb; border-bottom: 1px solid #e2e8f0;
+        padding-bottom: 4px; margin: 18px 0 10px; }}
+  h2 {{ font-size: 11pt; color: #1e40af; margin: 14px 0 6px; }}
+  h3 {{ font-size: 10pt; color: #1e293b; background: #eff6ff;
+        border-left: 3px solid #2563eb; padding: 4px 8px;
+        margin: 12px 0 6px; page-break-after: avoid; }}
+  hr  {{ border: none; border-top: 1px solid #e2e8f0; margin: 14px 0; }}
+  blockquote {{ background: #f8fafc; border-left: 3px solid #94a3b8;
+                padding: 6px 10px; margin: 8px 0; font-size: 9pt; color: #475569; }}
+  p   {{ margin: 6px 0; }}
+  ul  {{ margin: 6px 0 6px 18px; }}
+  li  {{ margin: 2px 0; }}
+  code {{ background: #f1f5f9; padding: 1px 4px; border-radius: 3px;
+          font-family: Consolas, monospace; font-size: 9pt; color: #0f172a; }}
+  strong {{ color: #1e293b; }}
+  table {{ width: 100%; border-collapse: collapse; margin: 8px 0;
+           font-size: 9pt; page-break-inside: avoid; }}
+  th {{ background: #eff6ff; color: #1e40af; font-weight: bold;
+        padding: 5px 8px; border: 1px solid #bfdbfe; text-align: left; }}
+  td {{ padding: 4px 8px; border: 1px solid #e2e8f0; vertical-align: top; }}
+  tr:nth-child(even) td {{ background: #f8fafc; }}
+  .footer {{ position: fixed; bottom: 8mm; left: 18mm; right: 18mm;
+             font-size: 7pt; color: #94a3b8; border-top: 1px solid #e2e8f0;
+             padding-top: 3px; display: flex; justify-content: space-between; }}
+  @media screen {{
+    body {{ max-width: 900px; margin: 30px auto; padding: 30px;
+            box-shadow: 0 0 20px rgba(0,0,0,.1); border-radius: 6px; }}
+    .print-btn {{ position: fixed; top: 20px; right: 20px;
+                  padding: 10px 22px; background: #2563eb; color: #fff;
+                  border: none; border-radius: 4px; font-size: 13px;
+                  cursor: pointer; font-weight: bold; box-shadow: 0 2px 8px rgba(0,0,0,.2); }}
+    .print-btn:hover {{ background: #1d4ed8; }}
+  }}
+  @media print {{
+    .print-btn {{ display: none; }}
+  }}
+</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">&#128438; Imprimer / Enregistrer PDF</button>
+<div class="header">
+  <div>
+    <div class="header-title">SCM — Spécification d'alimentation</div>
+    <div style="font-size:11pt;font-weight:600;color:#1e293b;margin-top:2px">{spec_title}</div>
+  </div>
+  <div class="header-sub">Généré le {__import__('datetime').datetime.now().strftime('%d/%m/%Y %H:%M')}</div>
+</div>
+<div class="content">
+{body_html}
+</div>
+<div class="footer">
+  <span>SCM — Reverse Engineering COBOL</span>
+  <span>{htmllib.escape(filename)}</span>
+</div>
+<script>
+  // Auto-trigger print dialog when opened from the Export button
+  if(window.opener) setTimeout(() => window.print(), 400);
+</script>
+</body>
+</html>"""
+    return Response(page, mimetype="text/html")
+
+
 @app.route("/api/specs")
 def api_specs():
     OUTPUT_DIR.mkdir(exist_ok=True)
@@ -527,7 +647,7 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
 
     <!-- SPEC tab -->
     <div class="panel" id="panel-spec">
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <select id="spec-select" onchange="loadSpec(this.value)"
                 style="padding:6px 10px;border:1px solid #d1d5db;
                        border-radius:4px;font-size:13px;min-width:260px">
@@ -537,6 +657,12 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
                 style="padding:6px 14px;background:#f8fafc;border:1px solid #d1d5db;
                        border-radius:4px;cursor:pointer;font-size:13px">
           &#8635;
+        </button>
+        <button id="btn-export-pdf" onclick="exportPdf()" disabled
+                style="padding:6px 18px;background:#2563eb;color:#fff;border:none;
+                       border-radius:4px;cursor:pointer;font-size:13px;font-weight:bold;
+                       display:flex;align-items:center;gap:6px">
+          &#128438; Export PDF
         </button>
       </div>
       <div id="spec-viewer">
@@ -838,14 +964,23 @@ async function refreshSpecs(){
 
 async function loadSpec(name){
   const viewer = document.getElementById("spec-viewer");
+  const btnPdf = document.getElementById("btn-export-pdf");
   if(!name){
     viewer.innerHTML = '<div class="spec-empty"><div class="icon">&#128196;</div><p>S&eacute;lectionnez une sp&eacute;cification.</p></div>';
+    btnPdf.disabled = true;
     return;
   }
   const res = await fetch("/api/spec/"+encodeURIComponent(name));
-  if(!res.ok){ viewer.innerHTML='<div class="spec-empty"><p>Introuvable.</p></div>'; return; }
+  if(!res.ok){ viewer.innerHTML='<div class="spec-empty"><p>Introuvable.</p></div>'; btnPdf.disabled=true; return; }
   const md = await res.text();
   viewer.innerHTML = '<div class="spec-content">' + renderMd(md) + '</div>';
+  btnPdf.disabled = false;
+}
+
+function exportPdf(){
+  const name = document.getElementById("spec-select").value;
+  if(!name) return;
+  window.open("/api/export-pdf/" + encodeURIComponent(name), "_blank");
 }
 
 function renderMd(md){
