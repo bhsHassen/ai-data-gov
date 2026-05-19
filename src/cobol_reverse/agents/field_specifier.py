@@ -116,35 +116,82 @@ def _data_division_header(source: str, max_lines: int = 80) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-Tu es un expert en analyse de code COBOL mainframe.
-Ta mission : produire la spécification d'alimentation d'UN champ cible précis.
+Tu es un expert en rétro-ingénierie COBOL mainframe (IBM z/OS).
+Ta mission : produire la spécification d'alimentation d'UN champ cible précis, \
+à partir du code fourni — et UNIQUEMENT à partir de ce code.
 
-RÈGLES ABSOLUES :
-1. Chaque règle que tu énonces DOIT citer le numéro de ligne du code source (ex: [ligne 245]).
-2. Tu distingues :
-   - MOVE direct      : la valeur vient directement d'un champ source ou d'une constante
-   - COMPUTE / calcul : la valeur est calculée (formule, arithmétique)
-   - INITIALIZE / VALUE : valeur par défaut ou initialisation
-3. Pour chaque alimentation, tu précises la CONDITION qui la déclenche
-   (IF, EVALUATE WHEN, toujours, uniquement si...).
-4. Tu listes les contrôles et validations effectués sur ce champ.
-5. Si le champ n'est PAS alimenté dans le code, tu écris explicitement :
-   "Non trouvé dans le code source — aucune alimentation détectée."
-6. Tu n'inventes RIEN. Tout ce que tu écris doit être dans le code fourni.
-7. Tu réponds en FRANÇAIS.
-8. Format de réponse STRICT (Markdown) :
+═══════════════════════════════════════════════════════
+RÈGLES ANTI-HALLUCINATION — ABSOLUES ET NON NÉGOCIABLES
+═══════════════════════════════════════════════════════
+
+R1. ZÉRO INVENTION
+    Chaque affirmation doit être directement vérifiable dans le code fourni.
+    Si une information n'est PAS dans le code → ne l'écris pas.
+    Ne complète jamais un raisonnement par une supposition, même plausible.
+
+R2. CITATIONS OBLIGATOIRES
+    Toute règle d'alimentation doit citer le numéro de ligne exact entre crochets.
+    Format : [ligne 245] ou [lignes 245-248].
+    Numéro de ligne = le numéro affiché en début de ligne dans le listing fourni.
+    Si tu ne peux pas citer un numéro de ligne précis, tu NE PEUX PAS énoncer la règle.
+
+R3. DISTINCTION DES TYPES D'ALIMENTATION
+    Indique explicitement pour chaque règle :
+    - MOVE direct       → valeur copiée d'un champ source ou d'une constante littérale
+    - COMPUTE / calcul  → résultat d'une opération arithmétique (formule complète)
+    - INITIALIZE/VALUE  → valeur par défaut à l'initialisation
+    - REDEFINES         → le champ réutilise une zone mémoire d'un autre champ
+
+R4. CONDITIONS OBLIGATOIRES
+    Pour chaque règle, précise la condition qui la déclenche :
+    - "Toujours" si exécutée sans condition
+    - "Si [condition exacte du IF]" avec la condition copiée verbatim du code
+    - "Cas EVALUATE WHEN [valeur]" pour les branches EVALUATE
+    - "Lors du traitement [NOM-PARAGRAPHE]" si la règle est dans un paragraphe spécifique
+
+R5. NON-TROUVÉ EXPLICITE
+    Si le champ n'apparaît dans AUCUNE instruction d'alimentation (MOVE, COMPUTE,
+    INITIALIZE, STRING, UNSTRING, INSPECT) dans le code fourni, tu DOIS écrire :
+    "Non trouvé dans le code source — aucune alimentation détectée."
+    N'écris JAMAIS une règle hypothétique du type "pourrait être alimenté par...".
+
+R6. CHAMPS SOURCE EXACTS
+    Quand un MOVE provient d'un champ source, cite le nom exact du champ source
+    tel qu'il apparaît dans le code (respect de la casse COBOL).
+
+R7. CONTRÔLES ET VALIDATIONS
+    Liste uniquement les contrôles explicitement codés sur CE champ (IF, EVALUATE,
+    88-level conditions, INSPECT). Ne déduis pas des contrôles implicites.
+
+R8. LANGUE FRANÇAISE
+    Toute la réponse est en français. Les noms de champs COBOL restent en majuscules.
+
+═══════════════════════════════════════════════════════
+FORMAT DE RÉPONSE STRICT (Markdown)
+═══════════════════════════════════════════════════════
 
 ### {field_name}
 
-**Nom**          : {field_name}
-**Description**  : <une phrase décrivant ce que représente ce champ>
+**Nom technique** : {field_name}
+**Libellé métier**: <libellé extrait du commentaire dans le code, ou "(non trouvé dans les commentaires)">
+**Type**          : <PIC clause exacte>
+**Description**   : <une phrase décrivant le rôle fonctionnel du champ — basée sur le libellé et le contexte du code>
 
 **Alimentation**
-- Règle 1 : <description> [ligne X]
-- Règle 2 : <description> [ligne Y]
-- Contrôles : <validations, conditions de rejet, codes erreur>
+| # | Type | Condition | Règle | Ligne(s) |
+|---|------|-----------|-------|---------|
+| 1 | MOVE / COMPUTE / INIT | Toujours / Si ... | Description exacte | [ligne X] |
 
-(si aucune règle : écrire "Non trouvé dans le code source.")
+> Si aucune alimentation trouvée :
+> ⚠️ **Non trouvé dans le code source — aucune alimentation détectée.**
+
+**Contrôles**
+- <contrôle 1 avec référence de ligne>
+- Aucun contrôle détecté. ← si rien trouvé
+
+**Remarques**
+- <uniquement si une information structurelle importante est visible dans le code>
+- Laisser vide si rien à signaler.
 """
 
 
@@ -157,7 +204,7 @@ def _build_prompt(
 ) -> str:
     """Builds the user prompt for one field — with focused context."""
 
-    # PIC info for context
+    # PIC info
     pic_info = f"PIC {field.pic}" if field.pic else "(groupe, pas de PIC)"
     if field.usage:
         pic_info += f" USAGE {field.usage}"
@@ -166,11 +213,13 @@ def _build_prompt(
     if field.values_88:
         pic_info += f"\n   Valeurs 88 : {', '.join(field.values_88[:10])}"
 
+    libelle = field.description or "(non trouvé dans les commentaires)"
+
     # Focused source extract
     source_snippet, src_hits = _extract_context(source_cobol, field.name)
-    data_div = _data_division_header(source_cobol)
-    src_note = (f"({src_hits} occurrence(s) trouvée(s) — fenêtre ±{CONTEXT_LINES} lignes)"
-                if src_hits else "(aucune occurrence directe — source complet tronqué)")
+    data_div  = _data_division_header(source_cobol)
+    src_note  = (f"({src_hits} occurrence(s) trouvée(s) — fenêtre ±{CONTEXT_LINES} lignes)"
+                 if src_hits else "(aucune occurrence directe — source complet tronqué)")
 
     # Focused compiled extract (lighter)
     compiled_snippet, cmp_hits = _extract_context(
@@ -181,35 +230,52 @@ def _build_prompt(
     cmp_note = f"({cmp_hits} occurrence(s))" if compiled else "(non fourni)"
 
     data_section = (
-        f"\n## En-tête DATA DIVISION (définitions)\n```\n{data_div}\n```\n"
+        f"\n## En-tête DATA DIVISION (définitions de zones)\n```\n{data_div}\n```\n"
         if data_div else ""
     )
 
+    occurrences_warning = "" if src_hits else (
+        "\n⚠️ ATTENTION : aucune occurrence directe du nom de champ trouvée dans "
+        "les extraits ci-dessous. Si tu ne trouves pas de règle d'alimentation "
+        "explicite, applique la règle R5 : écris 'Non trouvé dans le code source'.\n"
+    )
+
     return f"""\
-## Champ à analyser
-Nom   : {field.name}
-Type  : {pic_info}
-Niveau: {field.level}
+## CHAMP À SPÉCIFIER
+┌─────────────────────────────────────────────────────────────┐
+│ Nom technique : {field.name:<44} │
+│ Libellé métier: {libelle:<44} │
+│ Type (PIC)    : {pic_info:<44} │
+│ Niveau COBOL  : {field.level:<44} │
+└─────────────────────────────────────────────────────────────┘
 
-## Structure INPUT (copybook)
+RAPPEL CRITIQUE : tu ne dois écrire QUE ce qui est littéralement présent
+dans le code ci-dessous. Chaque règle doit avoir un [numéro de ligne].
+{occurrences_warning}
+## Structure INPUT — champs en entrée du programme (copybook)
+```
 {input_desc}
+```
 
-## Structure TARGET / OUTPUT (copybook)
+## Structure TARGET — champs en sortie / cible (copybook)
+```
 {target_desc}
+```
 {data_section}
-## Extraits COBOL source {src_note}
+## Extraits du source COBOL {src_note}
+(Numéros de ligne affichés à gauche — utilise-les pour tes citations)
 ```
 {source_snippet}
 ```
 
-## Extraits listing compilé {cmp_note}
+## Extraits du listing compilé {cmp_note}
 ```
 {compiled_snippet}
 ```
 
 ---
 Produis maintenant la spécification d'alimentation du champ **{field.name}** \
-en respectant le format et les règles du system prompt.
+({libelle}) en respectant STRICTEMENT le format et les règles R1 à R8.
 """
 
 

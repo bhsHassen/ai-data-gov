@@ -1,5 +1,5 @@
 """
-CERISE — Reverse Engineering COBOL
+SCM — Reverse Engineering COBOL
 Dashboard Flask : upload des 4 fichiers + progression champ par champ + spec finale.
 
 Routes:
@@ -260,7 +260,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CERISE &mdash; Reverse Engineering COBOL</title>
+<title>SCM &mdash; Reverse Engineering COBOL</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14px}
@@ -420,7 +420,7 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
 
 <div class="banner">
   <div>
-    <div class="banner-title">&#9670; CERISE &mdash; Reverse Engineering COBOL</div>
+    <div class="banner-title">&#9670; SCM &mdash; Reverse Engineering COBOL</div>
     <div class="banner-sub">Sp&eacute;cification champ par champ &mdash; alimentation &amp; r&egrave;gles de gestion</div>
   </div>
 </div>
@@ -912,5 +912,5 @@ window.addEventListener("DOMContentLoaded", () => {
 if __name__ == "__main__":
     INPUT_DIR.mkdir(exist_ok=True)
     OUTPUT_DIR.mkdir(exist_ok=True)
-    log("info", "CERISE dashboard on http://127.0.0.1:5001")
+    log("info", "SCM dashboard on http://127.0.0.1:5001")
     app.run(host="0.0.0.0", port=5001, debug=False)
