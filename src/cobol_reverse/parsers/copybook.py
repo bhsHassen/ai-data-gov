@@ -115,9 +115,86 @@ def _to_content(line: str) -> str:
 
 
 def _is_comment(line: str) -> bool:
-    raw = line[:8]
     stripped = line.strip()
     return stripped.startswith("*") or (len(line) >= 7 and line[6] in ("*", "/"))
+
+
+def _is_listing_header(line: str) -> bool:
+    """
+    Detect IBM/CA compiler listing page headers — lines that are NOT COBOL code.
+    Typical patterns:
+      - Lines starting with digits followed by spaces (sequence-only lines)
+      - "PP 5655-..." IBM header lines
+      - Lines with "PAGE " or "DATE " patterns typical of listings
+      - Lines that are purely numeric (sequence numbers without code)
+    """
+    stripped = line.strip()
+    if not stripped:
+        return False
+    # Pure page/sequence header: e.g. "   1  " with nothing else
+    if re.match(r"^\s*\d+\s*$", line):
+        return True
+    # IBM/CA listing page header
+    if re.match(r"^\s*(PP\s+\d|IEL|IGY|IDM|IGYCRP|DATE\s+\d)", stripped, re.I):
+        return True
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  COBOL source / listing pre-processor
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Division markers (order matters for extraction)
+_RE_DATA_DIV = re.compile(r"\bDATA\s+DIVISION\b", re.I)
+_RE_PROC_DIV = re.compile(r"\bPROCEDURE\s+DIVISION\b", re.I)
+_RE_ANY_DIV  = re.compile(
+    r"\b(IDENTIFICATION|ENVIRONMENT|DATA|PROCEDURE)\s+DIVISION\b", re.I
+)
+
+# Section markers inside DATA DIVISION
+_RE_SECTION  = re.compile(
+    r"\b(FILE|WORKING-STORAGE|LOCAL-STORAGE|LINKAGE|COMMUNICATION|REPORT)\s+SECTION\b",
+    re.I,
+)
+
+
+def _normalise_line(raw: str) -> str:
+    """
+    Return the logical content of one raw line:
+    - Strip listing headers → ""
+    - Strip fixed-form cols 1-6 + indicator 7
+    - Return free-form / already-stripped lines as-is
+    """
+    if _is_listing_header(raw):
+        return ""
+    return _to_content(raw)
+
+
+def _extract_data_division(text: str) -> str:
+    """
+    If `text` looks like a full COBOL source or listing, extract only the
+    DATA DIVISION block (stops at PROCEDURE DIVISION).
+    If no DATA DIVISION marker is found, return the original text unchanged
+    (assume it is already a copybook fragment).
+    """
+    lines = text.splitlines()
+    start = None
+    end   = len(lines)
+
+    for i, raw in enumerate(lines):
+        content = _normalise_line(raw)
+        if start is None:
+            if _RE_DATA_DIV.search(content):
+                start = i       # include the DATA DIVISION header itself
+        else:
+            if _RE_PROC_DIV.search(content):
+                end = i
+                break
+
+    if start is None:
+        return text             # no DATA DIVISION found → treat as-is (pure copybook)
+
+    return "\n".join(lines[start:end])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -126,9 +203,11 @@ def _is_comment(line: str) -> bool:
 
 def parse_copybook(text: str) -> list[CopyField]:
     """
-    Parse a copybook text and return an ordered list of CopyField objects.
+    Parse a copybook or COBOL source and return an ordered list of CopyField objects.
+    If the text contains a DATA DIVISION marker, only that section is parsed.
     Group items (no PIC) and 88-level conditions are included.
     """
+    text      = _extract_data_division(text)   # no-op if already a pure copybook
     raw_lines = text.splitlines()
 
     # --- Pass 1: join continuation lines and normalise ---
@@ -139,7 +218,7 @@ def parse_copybook(text: str) -> list[CopyField]:
     for i, raw in enumerate(raw_lines, 1):
         if _is_comment(raw):
             continue
-        content = _to_content(raw).rstrip()
+        content = _normalise_line(raw).rstrip()
         if not content.strip():
             continue
 

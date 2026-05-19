@@ -122,8 +122,10 @@ def api_fields(project: str):
 
 @app.route("/api/debug/<project>")
 def api_debug(project: str):
-    """Diagnostic: shows raw parser output for the target copybook."""
-    from src.cobol_reverse.parsers.copybook import parse_copybook_file
+    """Diagnostic: shows raw parser output for the target copybook / COBOL source."""
+    from src.cobol_reverse.parsers.copybook import (
+        parse_copybook_file, _extract_data_division
+    )
     folder = INPUT_DIR / project
     if not folder.exists():
         return jsonify({"error": "project not found"}), 404
@@ -131,18 +133,22 @@ def api_debug(project: str):
     if not b.target_path:
         return jsonify({"error": "no target file found",
                         "tried": ["target.cpy","target_desc.txt","target_desc.cpy","target.txt"]}), 404
-    raw_text  = b.target_path.read_bytes()
+    raw_bytes = b.target_path.read_bytes()
+    raw_text  = raw_bytes.decode("latin-1", errors="replace")
+    extracted = _extract_data_division(raw_text)
     all_fields = parse_copybook_file(b.target_path)
     leaves    = [f for f in all_fields if not f.is_group]
     groups    = [f for f in all_fields if f.is_group]
-    # Show first 20 raw lines for format inspection
-    lines = raw_text.decode("latin-1", errors="replace").splitlines()[:20]
     return jsonify({
-        "target_file":   b.target_path.name,
-        "total_parsed":  len(all_fields),
-        "leaves":        len(leaves),
-        "groups":        len(groups),
-        "first_20_lines": lines,
+        "target_file":        b.target_path.name,
+        "total_lines_raw":    len(raw_text.splitlines()),
+        "total_lines_extracted": len(extracted.splitlines()),
+        "data_division_found": extracted != raw_text,
+        "total_parsed":       len(all_fields),
+        "leaves":             len(leaves),
+        "groups":             len(groups),
+        "first_20_lines_raw": raw_text.splitlines()[:20],
+        "first_20_lines_extracted": extracted.splitlines()[:20],
         "sample_fields": [
             {"name": f.name, "level": f.level, "pic": f.pic, "is_group": f.is_group}
             for f in all_fields[:20]
