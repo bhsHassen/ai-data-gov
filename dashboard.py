@@ -161,6 +161,39 @@ def api_specs():
     return jsonify({"specs": [p.name for p in sorted(OUTPUT_DIR.glob("*.md"))]})
 
 
+@app.route("/api/test-llm")
+def api_test_llm():
+    """Quick connectivity test — sends a minimal request to the LLM."""
+    import os, time
+    from src.cobol_reverse.llm import build_client, get_model
+    try:
+        t0     = time.time()
+        client = build_client()
+        model  = get_model("doc")
+        resp   = client.chat.completions.create(
+            model       = model,
+            temperature = 0,
+            max_tokens  = 10,
+            messages    = [{"role": "user", "content": "Reply with OK only."}],
+        )
+        elapsed = round((time.time() - t0) * 1000)
+        answer  = resp.choices[0].message.content.strip()
+        return jsonify({
+            "ok":      True,
+            "model":   model,
+            "base_url": os.getenv("LLM_BASE_URL","(not set)"),
+            "reply":   answer,
+            "ms":      elapsed,
+        })
+    except Exception as e:
+        return jsonify({
+            "ok":      False,
+            "error":   str(e),
+            "base_url": os.getenv("LLM_BASE_URL","(not set)"),
+            "model":   os.getenv("LLM_MODEL","(not set)"),
+        }), 502
+
+
 @app.route("/")
 def index():
     return Response(DASHBOARD_HTML, mimetype="text/html")
@@ -212,6 +245,15 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
          background:#f8fafc;border:1px dashed #94a3b8;color:#475569;
          font-size:12px;cursor:pointer;border-radius:4px}
 .btn-new:hover{background:#eff6ff;border-color:#2563eb;color:#2563eb}
+
+.btn-test-llm{margin:8px 16px;padding:7px;width:calc(100% - 32px);
+              background:#f8fafc;border:1px solid #d1d9e6;color:#475569;
+              font-size:11px;cursor:pointer;border-radius:4px;text-align:left}
+.btn-test-llm:hover{background:#eff6ff;border-color:#2563eb;color:#2563eb}
+.llm-status{margin:0 16px 10px;font-size:11px;padding:6px 10px;
+            border-radius:4px;display:none;line-height:1.5}
+.llm-ok  {background:#dcfce7;color:#15803d;display:block}
+.llm-err {background:#fee2e2;color:#991b1b;display:block}
 
 /* Main */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
@@ -327,6 +369,12 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
                 font-size:11px;color:#94a3b8;line-height:1.5">
       D&eacute;posez vos fichiers dans<br>
       <code style="color:#2563eb">input/&lt;nom_projet&gt;/</code>
+    </div>
+    <div style="border-top:1px solid #eee;padding-top:8px">
+      <button class="btn-test-llm" onclick="testLlm()">
+        &#128268; Tester la connexion LLM
+      </button>
+      <div class="llm-status" id="llm-status"></div>
     </div>
   </div>
 
@@ -655,6 +703,37 @@ function renderMd(md){
 function esc(s){
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
                   .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ── LLM connection test ────────────────────────────────────────────────────
+async function testLlm(){
+  const box = document.getElementById("llm-status");
+  box.className = "llm-status";
+  box.textContent = "Test en cours…";
+  box.style.display = "block";
+  try {
+    const res  = await fetch("/api/test-llm");
+    const data = await res.json();
+    if(data.ok){
+      box.className = "llm-status llm-ok";
+      box.innerHTML =
+        "&#10003; Connexion OK<br>" +
+        "<b>Modèle :</b> " + esc(data.model) + "<br>" +
+        "<b>URL :</b> " + esc(data.base_url) + "<br>" +
+        "<b>Réponse :</b> " + esc(data.reply) + "<br>" +
+        "<b>Latence :</b> " + data.ms + " ms";
+    } else {
+      box.className = "llm-status llm-err";
+      box.innerHTML =
+        "&#10007; Erreur de connexion<br>" +
+        "<b>URL :</b> " + esc(data.base_url) + "<br>" +
+        "<b>Modèle :</b> " + esc(data.model) + "<br>" +
+        "<b>Détail :</b> " + esc(data.error);
+    }
+  } catch(e) {
+    box.className = "llm-status llm-err";
+    box.textContent = "Erreur réseau : " + e.message;
+  }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
