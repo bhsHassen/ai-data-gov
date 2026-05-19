@@ -303,8 +303,91 @@ def parse_copybook(text: str) -> list[CopyField]:
     return fields
 
 
+def parse_greedy(text: str) -> list[CopyField]:
+    """
+    Greedy scanner for mainframe compiler listings and other noisy formats.
+
+    Scans the ENTIRE text (not line-by-line) for all occurrences of:
+        <level> <name> ... PIC <clause>
+    and for group items:
+        <level> <name>  (ends with dot or is followed by another level)
+
+    Handles formats where:
+    - Multiple source lines are concatenated on one physical line
+    - Cross-reference data is interleaved with source code
+    - Line numbers (6-digit) prefix source content
+
+    Returns deduplicated CopyField list ordered by first occurrence.
+    """
+    # ── Step 1: extract source tokens from listing lines ──────────────────
+    # Listing line pattern: 6-digit number (optionally followed by C/I) then content
+    # e.g. "006113C  10  WS-DATE         PIC 9(8)."
+    # Strip 6-digit prefixes so we get clean COBOL tokens.
+    clean = re.sub(r"\b\d{6}[A-Z]?\s+", " ", text)
+    # Also strip 8-digit object-code addresses  e.g. "00090300"
+    clean = re.sub(r"\b[0-9A-F]{8}\b", " ", clean)
+    # Collapse runs of spaces/stars/dashes used as separators
+    clean = re.sub(r"[*\-]{3,}", " ", clean)
+
+    # ── Step 2: find all PIC fields in the cleaned text ───────────────────
+    # Pattern: level(1-2 digits) name PIC clause
+    PAT_FIELD = re.compile(
+        r"\b(\d{1,2})\s+([\w][\w-]*)\s+.*?PIC(?:TURE)?\s+(?:IS\s+)?([^\s.,]+)",
+        re.I,
+    )
+
+    seen:   set[str] = set()
+    fields: list[CopyField] = []
+
+    for m in PAT_FIELD.finditer(clean):
+        level = int(m.group(1))
+        name  = m.group(2).upper().rstrip(".")
+        pic   = m.group(3).upper()
+
+        # Skip obvious noise: level 88, or names that are COBOL keywords
+        _SKIP = {"COPY","MOVE","IF","THEN","ELSE","END","PERFORM","CALL",
+                 "SECTION","DIVISION","PROCEDURE","PROGRAM","AUTHOR"}
+        if level == 88 or name in _SKIP:
+            continue
+        if level < 1 or level > 77:
+            continue
+
+        key = f"{level}:{name}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        # Get surrounding text for USAGE / OCCURS
+        ctx = clean[max(0, m.start()-10): m.end()+80]
+        um  = _RE_USAGE.search(ctx) or _RE_COMP_SHORT.search(ctx)
+        om  = _RE_OCCURS.search(ctx)
+
+        fields.append(CopyField(
+            level       = level,
+            name        = name,
+            pic         = pic,
+            pic_type    = _pic_type(pic),
+            length      = _pic_length(pic),
+            usage       = um.group(1).upper() if um else None,
+            occurs      = int(om.group(1))    if om else None,
+            occurs_dep  = None,
+            redefines   = None,
+            values_88   = [],
+            source_line = 0,   # not available in greedy mode
+            is_group    = False,
+        ))
+
+    return fields
+
+
 def parse_copybook_file(path: Path) -> list[CopyField]:
-    """Read a copybook file and parse it."""
+    """
+    Read and parse a copybook or COBOL source/listing file.
+    Strategy:
+      1. Try standard copybook parser (handles fixed-form + free-form + full source).
+      2. If fewer than 2 leaf fields found, fall back to greedy scan — handles
+         mainframe compiler listings where source is interleaved with object code.
+    """
     raw = path.read_bytes()
     for enc in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
         try:
@@ -314,7 +397,18 @@ def parse_copybook_file(path: Path) -> list[CopyField]:
             continue
     else:
         text = raw.decode("latin-1", errors="replace")
-    return parse_copybook(text)
+
+    # Standard parse first
+    fields = parse_copybook(text)
+    leaves = [f for f in fields if not f.is_group]
+
+    # Fallback: greedy scan for noisy listing formats
+    if len(leaves) < 2:
+        greedy = parse_greedy(text)
+        if len(greedy) > len(leaves):
+            return greedy
+
+    return fields
 
 
 def fields_summary(fields: list[CopyField]) -> str:
