@@ -115,7 +115,8 @@ def api_fields(project: str):
         {"name": f.name, "level": f.level,
          "pic": f.pic, "pic_type": f.pic_type,
          "is_group": f.is_group,
-         "values_88": f.values_88}
+         "values_88": f.values_88,
+         "description": f.description}
         for f in fields
     ]})
 
@@ -497,7 +498,8 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
             <thead>
               <tr>
                 <th style="width:36px"></th>
-                <th>Champ</th>
+                <th>Champ technique</th>
+                <th>Libellé métier</th>
                 <th>PIC</th>
                 <th style="width:110px">Statut</th>
                 <th style="width:80px"></th>
@@ -671,9 +673,13 @@ function renderFieldTable(){
     const badgeTxt = {idle:"—",running:"&#9654; analyse…",
                       ok:"&#10003; trouvé",miss:"&#9675; non trouvé",err:"&#10007; erreur"}[st.status]||"—";
     const spin = st.status==="running" ? "&#8987; " : "";
+    const desc = f.description
+      ? `<span style="color:#1e293b;font-weight:500">${esc(f.description)}</span>`
+      : `<span style="color:#94a3b8;font-style:italic">—</span>`;
     return `<tr id="ftr-${esc(f.name)}" class="${st.status==="running"?"ft-running":""}">
       <td style="text-align:center;font-size:13px">${spin}</td>
       <td class="ft-name">${esc(f.name)}</td>
+      <td>${desc}</td>
       <td class="ft-pic">${esc(f.pic||"—")}</td>
       <td><span class="badge ${badgeCls}">${badgeTxt}</span></td>
       <td>

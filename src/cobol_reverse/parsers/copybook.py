@@ -36,6 +36,7 @@ class CopyField:
     values_88:   list[str]         # 88-level values attached to this field
     source_line: int               # 1-based line number in the copybook
     is_group:    bool              # True if no PIC (group / record item)
+    description: str | None = None # business label extracted from comments
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -307,34 +308,40 @@ def parse_greedy(text: str) -> list[CopyField]:
     """
     Greedy scanner for mainframe compiler listings and other noisy formats.
 
-    Scans the ENTIRE text (not line-by-line) for all occurrences of:
-        <level> <name> ... PIC <clause>
-    and for group items:
-        <level> <name>  (ends with dot or is followed by another level)
-
-    Handles formats where:
-    - Multiple source lines are concatenated on one physical line
-    - Cross-reference data is interleaved with source code
-    - Line numbers (6-digit) prefix source content
+    Also extracts business labels from comment lines of the pattern:
+        *----* CODE BANQUE *-----------001*
+        *----* NUMERO DE DOSSIER *-----023*
+    and associates each label with the next field definition found.
 
     Returns deduplicated CopyField list ordered by first occurrence.
     """
-    # ── Step 1: extract source tokens from listing lines ──────────────────
-    # Listing line pattern: 6-digit number (optionally followed by C/I) then content
-    # e.g. "006113C  10  WS-DATE         PIC 9(8)."
-    # Strip 6-digit prefixes so we get clean COBOL tokens.
-    clean = re.sub(r"\b\d{6}[A-Z]?\s+", " ", text)
-    # Also strip 8-digit object-code addresses  e.g. "00090300"
-    clean = re.sub(r"\b[0-9A-F]{8}\b", " ", clean)
-    # Collapse runs of spaces/stars/dashes used as separators
-    clean = re.sub(r"[*\-]{3,}", " ", clean)
+    # ── Step 1: build description map from comment labels ─────────────────
+    # Pattern: *---* LABEL TEXT *---NNN* (with dashes/stars as separators)
+    PAT_LABEL = re.compile(
+        r"\*[-* ]+([A-Z][A-Z0-9 '/.()\-]{2,40?}?)\s*\*[-*\s]*\d+\s*\*",
+        re.I,
+    )
+    # Map: character position in raw text → description label
+    label_positions: list[tuple[int, str]] = []
+    for m in PAT_LABEL.finditer(text):
+        label = m.group(1).strip()
+        # Filter out noise (too many special chars, pure separators)
+        if re.search(r"[A-Za-z]{2}", label):
+            label_positions.append((m.start(), label))
 
-    # ── Step 2: find all PIC fields in the cleaned text ───────────────────
-    # Pattern: level(1-2 digits) name PIC clause
+    # ── Step 2: normalise listing noise ───────────────────────────────────
+    clean = re.sub(r"\b\d{6}[A-Z]?\s+", " ", text)
+    clean = re.sub(r"\b[0-9A-F]{8}\b", " ", clean)
+    clean = re.sub(r"[*\-]{4,}", " ", clean)
+
+    # ── Step 3: find all PIC fields ───────────────────────────────────────
     PAT_FIELD = re.compile(
         r"\b(\d{1,2})\s+([\w][\w-]*)\s+.*?PIC(?:TURE)?\s+(?:IS\s+)?([^\s.,]+)",
         re.I,
     )
+
+    _SKIP = {"COPY","MOVE","IF","THEN","ELSE","END","PERFORM","CALL",
+             "SECTION","DIVISION","PROCEDURE","PROGRAM","AUTHOR","FILLER"}
 
     seen:   set[str] = set()
     fields: list[CopyField] = []
@@ -344,9 +351,6 @@ def parse_greedy(text: str) -> list[CopyField]:
         name  = m.group(2).upper().rstrip(".")
         pic   = m.group(3).upper()
 
-        # Skip obvious noise: level 88, or names that are COBOL keywords
-        _SKIP = {"COPY","MOVE","IF","THEN","ELSE","END","PERFORM","CALL",
-                 "SECTION","DIVISION","PROCEDURE","PROGRAM","AUTHOR"}
         if level == 88 or name in _SKIP:
             continue
         if level < 1 or level > 77:
@@ -356,6 +360,17 @@ def parse_greedy(text: str) -> list[CopyField]:
         if key in seen:
             continue
         seen.add(key)
+
+        # ── Associate nearest preceding label ──────────────────────────
+        desc = None
+        pos  = m.start()
+        # Find the closest label that appears before this field (within 500 chars)
+        best_dist = 500
+        for lpos, lbl in label_positions:
+            dist = pos - lpos
+            if 0 < dist < best_dist:
+                best_dist = dist
+                desc = lbl
 
         # Get surrounding text for USAGE / OCCURS
         ctx = clean[max(0, m.start()-10): m.end()+80]
@@ -373,8 +388,9 @@ def parse_greedy(text: str) -> list[CopyField]:
             occurs_dep  = None,
             redefines   = None,
             values_88   = [],
-            source_line = 0,   # not available in greedy mode
+            source_line = 0,
             is_group    = False,
+            description = desc,
         ))
 
     return fields
