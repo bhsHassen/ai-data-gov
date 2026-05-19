@@ -120,6 +120,36 @@ def api_fields(project: str):
     ]})
 
 
+@app.route("/api/debug/<project>")
+def api_debug(project: str):
+    """Diagnostic: shows raw parser output for the target copybook."""
+    from src.cobol_reverse.parsers.copybook import parse_copybook_file
+    folder = INPUT_DIR / project
+    if not folder.exists():
+        return jsonify({"error": "project not found"}), 404
+    b = InputBundle(folder)
+    if not b.target_path:
+        return jsonify({"error": "no target file found",
+                        "tried": ["target.cpy","target_desc.txt","target_desc.cpy","target.txt"]}), 404
+    raw_text  = b.target_path.read_bytes()
+    all_fields = parse_copybook_file(b.target_path)
+    leaves    = [f for f in all_fields if not f.is_group]
+    groups    = [f for f in all_fields if f.is_group]
+    # Show first 20 raw lines for format inspection
+    lines = raw_text.decode("latin-1", errors="replace").splitlines()[:20]
+    return jsonify({
+        "target_file":   b.target_path.name,
+        "total_parsed":  len(all_fields),
+        "leaves":        len(leaves),
+        "groups":        len(groups),
+        "first_20_lines": lines,
+        "sample_fields": [
+            {"name": f.name, "level": f.level, "pic": f.pic, "is_group": f.is_group}
+            for f in all_fields[:20]
+        ],
+    })
+
+
 @app.route("/api/run/<project>", methods=["POST"])
 def api_run(project: str):
     """
