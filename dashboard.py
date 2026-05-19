@@ -570,7 +570,7 @@ function renderSidebar(reports){
     return;
   }
   list.innerHTML = reports.map((r, i) => {
-    const name  = r.path.split(/[\\\\/]/).pop();
+    const name  = r.path.split(/[/\\\\]/).pop();
     const pgm   = r.program_id || r.root_record || "";
     const lines = r.line_count.toLocaleString();
     const conf  = r.confidence;
@@ -712,11 +712,11 @@ function renderMd(md){
     .replace(/^# (.+)$/gm, "<h1>$1</h1>")
     .replace(/^## (.+)$/gm,"<h2>$1</h2>")
     .replace(/^### (.+)$/gm,"<h3>$1</h3>")
-    .replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>")
+    .replace(/[*][*](.+?)[*][*]/g,"<strong>$1</strong>")
     .replace(/`([^`]+)`/g,"<code>$1</code>")
     .replace(/^---$/gm,"<hr>")
     .replace(/^- (.+)$/gm,"<li>$1</li>")
-    .replace(/(<li>.*<\\/li>\\n?)+/g, s => "<ul>" + s + "</ul>")
+    .replace(/(<li>[\s\S]+?<\\/li>)/g, s => "<ul>" + s + "</ul>")
     .replace(/\\n/g,"<br>");
 }
 
