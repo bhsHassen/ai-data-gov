@@ -528,10 +528,18 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
 .spec-content blockquote{border-left:3px solid #94a3b8;padding-left:14px;
                           color:#64748b;font-style:italic;margin:10px 0}
 .spec-content hr{border:none;border-top:1px solid #e2e8f0;margin:20px 0}
-.spec-content table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0 16px}
-.spec-content th{background:#f0f4f8;padding:8px 12px;border:1px solid #d1d9e6;
-                 font-size:11px;text-transform:uppercase;letter-spacing:.4px;text-align:left}
-.spec-content td{padding:7px 12px;border:1px solid #e2e8f0;vertical-align:top}
+.spec-content table,.spec-content .md-table{width:100%;border-collapse:collapse;
+              font-size:12px;margin:10px 0 16px;border-radius:4px;overflow:hidden}
+.spec-content th{background:#1e3a8a;color:#fff;padding:8px 12px;
+                 border:1px solid #1e40af;font-size:11px;
+                 text-transform:uppercase;letter-spacing:.4px;text-align:left}
+.spec-content td{padding:7px 12px;border:1px solid #e2e8f0;vertical-align:top;
+                 line-height:1.5}
+.spec-content tr:nth-child(even) td{background:#f8fafc}
+.spec-content tr:hover td{background:#eff6ff}
+.spec-content blockquote{border-left:4px solid #f59e0b;background:#fffbeb;
+                          padding:8px 14px;color:#92400e;font-style:normal;
+                          margin:10px 0;border-radius:0 4px 4px 0}
 .spec-empty{color:#94a3b8;text-align:center;padding:60px 24px}
 .spec-empty .icon{font-size:44px;margin-bottom:12px}
 </style>
@@ -984,18 +992,48 @@ function exportPdf(){
 }
 
 function renderMd(md){
-  return md
-    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-    .replace(/^# (.+)$/gm,"<h1>$1</h1>")
-    .replace(/^## (.+)$/gm,"<h2>$1</h2>")
-    .replace(/^### (.+)$/gm,"<h3>$1</h3>")
-    .replace(/^> (.+)$/gm,"<blockquote>$1</blockquote>")
-    .replace(/^---$/gm,"<hr>")
-    .replace(/[*][*](.+?)[*][*]/g,"<strong>$1</strong>")
-    .replace(/`([^`]+)`/g,"<code>$1</code>")
-    .replace(/^- (.+)$/gm,"<li>$1</li>")
-    .replace(/(<li>[^<]+<\\/li>\\n?)+/g, s=>"<ul>"+s+"</ul>")
-    .replace(/\\n/g,"<br>");
+  // Escape HTML first
+  let t = md.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+  // ── Tables: collect consecutive | lines into <table> ────────────────
+  t = t.replace(/((?:^\|.+\|\n?)+)/gm, tableBlock => {
+    const rows = tableBlock.trim().split("\\n").filter(r => r.trim());
+    let html = '<table class="md-table">';
+    let isHead = true;
+    rows.forEach(row => {
+      // Separator row (|---|---|)
+      if(/^\|[-| :]+\|$/.test(row.trim())) { isHead = false; return; }
+      const cells = row.split("|").slice(1,-1).map(c => c.trim());
+      const tag   = isHead ? "th" : "td";
+      html += "<tr>" + cells.map(c => `<${tag}>${c}</${tag}>`).join("") + "</tr>";
+      if(isHead) isHead = false;
+    });
+    return html + "</table>";
+  });
+
+  // ── Headings ─────────────────────────────────────────────────────────
+  t = t.replace(/^### (.+)$/gm,"<h3>$1</h3>");
+  t = t.replace(/^## (.+)$/gm, "<h2>$1</h2>");
+  t = t.replace(/^# (.+)$/gm,  "<h1>$1</h1>");
+
+  // ── Blockquote ("> ⚠️ ...") ──────────────────────────────────────────
+  t = t.replace(/^&gt;\s*(.+)$/gm,"<blockquote>$1</blockquote>");
+
+  // ── HR ───────────────────────────────────────────────────────────────
+  t = t.replace(/^---$/gm,"<hr>");
+
+  // ── Inline: bold, code ────────────────────────────────────────────────
+  t = t.replace(/[*][*](.+?)[*][*]/g,"<strong>$1</strong>");
+  t = t.replace(/`([^`]+)`/g,"<code>$1</code>");
+
+  // ── Lists ─────────────────────────────────────────────────────────────
+  t = t.replace(/^- (.+)$/gm,"<li>$1</li>");
+  t = t.replace(/(<li>[\s\S]+?<\\/li>)(?=\\n(?!<li>)|$)/g, s=>"<ul>"+s+"</ul>");
+
+  // ── Paragraphs (double newline) ───────────────────────────────────────
+  t = t.replace(/\\n\\n/g,"</p><p>");
+  t = t.replace(/\\n/g,"<br>");
+  return "<p>" + t + "</p>";
 }
 
 function esc(s){

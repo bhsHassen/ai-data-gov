@@ -149,10 +149,14 @@ R4. CONDITIONS OBLIGATOIRES
     - "Cas EVALUATE WHEN [valeur]" pour les branches EVALUATE
     - "Lors du traitement [NOM-PARAGRAPHE]" si la règle est dans un paragraphe spécifique
 
-R5. NON-TROUVÉ EXPLICITE
-    Si le champ n'apparaît dans AUCUNE instruction d'alimentation (MOVE, COMPUTE,
-    INITIALIZE, STRING, UNSTRING, INSPECT) dans le code fourni, tu DOIS écrire :
-    "Non trouvé dans le code source — aucune alimentation détectée."
+R5. NON-TROUVÉ EXPLICITE — MUTUELLEMENT EXCLUSIF AVEC LES RÈGLES
+    DEUX CAS SEULEMENT, jamais les deux ensemble :
+    CAS A — Des règles ont été trouvées → remplis le tableau, section Contrôles, Remarques.
+             NE PAS écrire "Non trouvé" ni le bloc ⚠️.
+    CAS B — Aucune règle trouvée → écrire UNIQUEMENT :
+             "⚠️ Non trouvé dans le code source — aucune alimentation détectée."
+             NE PAS inventer de règles, NE PAS écrire de tableau vide.
+    Si tu as rempli au moins une ligne du tableau → tu es dans le CAS A.
     N'écris JAMAIS une règle hypothétique du type "pourrait être alimenté par...".
 
 R6. CHAMPS SOURCE EXACTS
