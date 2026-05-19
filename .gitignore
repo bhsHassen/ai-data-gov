@@ -10,7 +10,11 @@ env/
 
 # Output
 output/*.md
-code_output/
+output/*.json
+
+# Input — source files placed locally for inspection are not committed
+input/raw/*
+!input/raw/.gitkeep
 
 # Claude Code local state (plans, etc.)
 .claude/

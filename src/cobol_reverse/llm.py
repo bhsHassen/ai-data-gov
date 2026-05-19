@@ -1,8 +1,7 @@
 """
-Shared LLM client — OpenAI-compatible, Qwen3 internal BNP.
+Shared LLM client — OpenAI-compatible.
 Handles SSL and proxy from .env configuration.
 """
-
 import os
 import httpx
 from openai import OpenAI
@@ -32,19 +31,24 @@ def build_client() -> OpenAI:
     return OpenAI(base_url=base_url, api_key=api_key, http_client=http_client)
 
 
-def get_model(role: str = "analyst1") -> str:
+def get_model(role: str = "doc") -> str:
     """
     Returns the model name for a given role.
-    role: "analyst1" | "analyst2" | "judge" | "developer" | "reviewer"
+    Roles used by the COBOL pipeline:
+      "inspector"     -> quick classification (cheap model OK)
+      "doc"           -> program documentation
+      "data"          -> data dictionary
+      "rules"         -> business rules extraction
+      "cartographer"  -> system map narration
     Falls back to LLM_MODEL if role-specific var is not set.
     """
     mapping = {
-        "analyst1":  "LLM_MODEL_ANALYST1",
-        "analyst2":  "LLM_MODEL_ANALYST2",
-        "judge":     "LLM_MODEL_JUDGE",
-        "developer": "LLM_MODEL_DEVELOPER",
-        "reviewer":  "LLM_MODEL_REVIEWER",
+        "inspector":    "LLM_MODEL_INSPECTOR",
+        "doc":          "LLM_MODEL_DOC",
+        "data":         "LLM_MODEL_DATA",
+        "rules":        "LLM_MODEL_RULES",
+        "cartographer": "LLM_MODEL_CARTOGRAPHER",
     }
-    env_var  = mapping.get(role, "LLM_MODEL_ANALYST1")
+    env_var  = mapping.get(role, "LLM_MODEL_DOC")
     fallback = os.getenv("LLM_MODEL", "qwen3")
     return os.getenv(env_var, fallback)

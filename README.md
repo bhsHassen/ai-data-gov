@@ -1,39 +1,51 @@
-# AI-Powered Flow Documentation POC
+# cobol_reverse — Mainframe COBOL/VSAM reverse-engineering pipeline
 
-Automated data flow specification generator for CSR team — BNP Paribas CIB.
+POC tool that ingests legacy COBOL modules and VSAM copybooks and produces a
+complete, audit-grade specification of the application. Built to bootstrap a
+migration project — but the specification stands on its own.
 
-## What it does
+## Status
 
-Reads legacy Java/SQL code and Oracle DB schemas, then generates structured Markdown specs ready for Confluence and Collibra.
+**MVP — Phase 1 (inspector)** : drop your source files, the tool classifies
+each one (COBOL module / copybook / JCL / unknown) and surfaces fingerprints
+(PROGRAM-ID, COPY statements, CALL targets, EXEC SQL/CICS markers, encoding).
 
-## Architecture
-
-4-agent pipeline orchestrated by LangGraph:
-
-```
-Collector → Analyst (Qwen3) → Validator → Writer
-```
-
-Output: `FLOW_[NAME]_SPEC.md` with 7 standardized sections.
-
-## Setup
+## Quick start
 
 ```bash
+# 1. Set up the environment
+python -m venv .venv
+.venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-cp .env.example .env
-# Fill in .env with your credentials
+
+# 2. Drop your COBOL files (any extension) into:
+input/raw/
+
+# 3. Run the inspector
+python run.py inspect
 ```
 
-## Usage
+The inspector prints a summary to the console and writes a machine-readable
+report to `output/inspect.json`.
 
-```bash
-python main.py --flow ATLAS2
-```
-
-## Project structure
+## Project layout
 
 ```
-legacy_code/    # Put legacy Java/SQL source files here
-output/         # Generated spec files
-src/            # Agent source code
+input/raw/                       <- source files dropped here
+src/cobol_reverse/
+    inspect.py                   <- file classifier (no LLM)
+    parsers/                     <- (next phase) COBOL + copybook parsers
+    llm.py                       <- OpenAI-compatible client
+    console.py                   <- coloured logger
+output/                          <- generated artefacts (json, markdown)
+run.py                           <- CLI entry point
 ```
+
+## Next phases
+
+1. ~~Inspector~~ — done
+2. Copybook parser — hierarchical PIC tree extraction
+3. COBOL parser — divisions, SELECT/ASSIGN, CALL graph, PERFORM graph
+4. IR builder + static analytics
+5. LLM agents (cartographer, data dictionary, program doc, business rules)
+6. Validator + dashboard
