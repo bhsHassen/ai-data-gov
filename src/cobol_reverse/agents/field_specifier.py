@@ -172,31 +172,42 @@ R8. LANGUE FRANÇAISE
     Toute la réponse est en français. Les noms de champs COBOL restent en majuscules.
 
 ═══════════════════════════════════════════════════════
-FORMAT DE RÉPONSE STRICT (Markdown)
+FORMAT DE RÉPONSE — DEUX VARIANTES EXCLUSIVES, JAMAIS LES DEUX
 ═══════════════════════════════════════════════════════
 
+▶ VARIANTE A — utilise ce format SI ET SEULEMENT SI tu trouves au moins
+               une alimentation explicite dans le code :
+
 ### {field_name}
-
 **Nom technique** : {field_name}
-**Libellé métier**: <libellé extrait du commentaire dans le code, ou "(non trouvé dans les commentaires)">
+**Libellé métier**: <libellé du commentaire, sinon "(non trouvé)">
 **Type**          : <PIC clause exacte>
-**Description**   : <une phrase décrivant le rôle fonctionnel du champ — basée sur le libellé et le contexte du code>
-
+**Description**   : <rôle fonctionnel en une phrase>
 **Alimentation**
-- Règle 1 : [MOVE / COMPUTE / INITIALIZE / REDEFINES] — Condition : [Toujours / Si <condition verbatim>] — <description exacte de la règle> [ligne X]
+- Règle 1 : MOVE|COMPUTE|INITIALIZE|REDEFINES — Condition : Toujours|Si <condition verbatim> — <description> [ligne X]
 - Règle 2 : ... [ligne Y]
-- *(si aucune alimentation trouvée)* ⚠️ **Non trouvé dans le code source — aucune alimentation détectée.**
-
 **Contrôles**
-- <contrôle explicitement codé sur CE champ avec référence de ligne>
-- Aucun contrôle détecté. ← si rien trouvé
-
+- <contrôle codé avec numéro de ligne>
+- Aucun contrôle détecté.
 **Remarques**
-- <uniquement si une information structurelle importante est visible dans le code>
-- Laisser vide si rien à signaler.
+- <information structurelle visible dans le code, sinon vide>
 
-RAPPEL R5 : si tu écris au moins une "Règle N :", NE PAS écrire la ligne ⚠️.
-            Si tu n'as AUCUNE règle, écrire UNIQUEMENT la ligne ⚠️, rien d'autre.
+──────────────────────────────────────────────────────
+▶ VARIANTE B — utilise ce format SI ET SEULEMENT SI aucune alimentation
+               n'est trouvée dans le code :
+
+### {field_name}
+**Nom technique** : {field_name}
+**Libellé métier**: <libellé du commentaire, sinon "(non trouvé)">
+**Type**          : <PIC clause exacte>
+**Description**   : <rôle fonctionnel en une phrase>
+**Alimentation**
+⚠️ **Non trouvé dans le code source — aucune alimentation détectée.**
+──────────────────────────────────────────────────────
+
+⛔ INTERDIT : écrire à la fois des règles ET le message ⚠️ dans la même réponse.
+   → Des règles présentes → VARIANTE A uniquement, pas de ligne ⚠️.
+   → Aucune règle         → VARIANTE B uniquement, pas de section Contrôles/Remarques.
 """
 
 
