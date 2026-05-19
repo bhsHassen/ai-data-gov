@@ -36,11 +36,23 @@ from .console import log
 # We don't enforce columns strictly (1990s code sometimes drifts) but we look
 # at typical signals tolerantly. All matches case-insensitive on stripped lines.
 
-PAT_IDENTIFICATION  = re.compile(r"^\s*IDENTIFICATION\s+DIVISION\b", re.I)
-PAT_ENVIRONMENT     = re.compile(r"^\s*ENVIRONMENT\s+DIVISION\b",    re.I)
-PAT_DATA_DIVISION   = re.compile(r"^\s*DATA\s+DIVISION\b",           re.I)
-PAT_PROCEDURE       = re.compile(r"^\s*PROCEDURE\s+DIVISION\b",      re.I)
-PAT_PROGRAM_ID      = re.compile(r"^\s*PROGRAM-ID\s*\.\s*([A-Z0-9\-_]+)", re.I)
+PAT_IDENTIFICATION  = re.compile(r"^\s*(?:IDENTIFICATION|ID)\s+DIVISION\b", re.I)
+PAT_ENVIRONMENT     = re.compile(r"^\s*ENVIRONMENT\s+DIVISION\b",           re.I)
+PAT_DATA_DIVISION   = re.compile(r"^\s*DATA\s+DIVISION\b",                  re.I)
+PAT_PROCEDURE       = re.compile(r"^\s*PROCEDURE\s+DIVISION\b",             re.I)
+PAT_PROGRAM_ID      = re.compile(r"PROGRAM-ID\s*\.?\s*([A-Z0-9\-_]+)",      re.I)
+
+# Fixed-form COBOL: col 7-72 content after stripping sequence numbers.
+# Many 1990s listings have sequence numbers in cols 1-6, indicator col 7,
+# and optional compiler info after col 72. We strip those before matching.
+_COL7_COMMENT  = re.compile(r"^.{6}[*/]")   # col 7 is * or /
+
+# Compiler listing headers (IBM IEW, CA-7, etc.):
+#   "  PAGE nnn", "DATE MM/DD/YY", PP …, column ruler lines, blank lines
+PAT_LISTING_HDR = re.compile(
+    r"^\s*(?:PAGE\s+\d+|DATE\s+\d|PP\s+\d|[=\-]{10,}|\d{6,}\s*$|"
+    r"SOURCE\s+LISTING|COMPILATION\s+UNIT|CROSS[\s-]REFERENCE)", re.I
+)
 
 # Copybook signals: level numbers 01..49 at the start of a content line,
 # followed by a name and possibly PIC / OCCURS / REDEFINES.
@@ -99,15 +111,55 @@ ENCODINGS_TRIED = ("utf-8", "utf-8-sig", "cp1252", "latin-1")
 
 
 def _read_text(path: Path) -> tuple[str, str]:
-    """Reads the file, returns (text, encoding_used)."""
+    """
+    Reads the file, returns (text, encoding_used).
+    Also handles files with null-byte padding (some EBCDIC exports add 0x00).
+    """
     raw = path.read_bytes()
+    # Remove null bytes that some mainframe transfers insert
+    raw = raw.replace(b"\x00", b"")
     for enc in ENCODINGS_TRIED:
         try:
             return raw.decode(enc), enc
         except UnicodeDecodeError:
             continue
-    # Last-resort: ignore errors to keep going.
     return raw.decode("latin-1", errors="replace"), "latin-1(replace)"
+
+
+def _strip_listing_headers(lines: list[str]) -> tuple[list[str], int]:
+    """
+    Many IBM/CA mainframe printouts embed compiler page headers before and
+    between COBOL divisions. Strip those so the classifier can see the code.
+
+    Returns (cleaned_lines, skipped_count).
+    """
+    cleaned, skipped = [], 0
+    for line in lines:
+        if PAT_LISTING_HDR.match(line):
+            skipped += 1
+            continue
+        cleaned.append(line)
+    return cleaned, skipped
+
+
+def _extract_cobol_content(raw_lines: list[str]) -> list[str]:
+    """
+    Convert fixed-form COBOL lines to their content-only form:
+      - Remove sequence numbers (cols 1-6)
+      - Preserve col-7 indicator (space / * / - / D)
+      - Truncate at col 72 (compiler ignores cols 73-80)
+    If lines are shorter than 7 chars, return them as-is (free-form or short).
+    """
+    result = []
+    for line in raw_lines:
+        if len(line) >= 7:
+            # cols are 1-indexed; Python slices are 0-indexed
+            indicator = line[6]   # col 7
+            content   = line[7:72] if len(line) > 7 else ""
+            result.append(indicator + content)
+        else:
+            result.append(line)
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -118,55 +170,108 @@ def classify(text: str) -> tuple[str, str, list[str]]:
     """
     Returns (file_type, confidence, signals).
 
+    We run classification on BOTH the raw text AND the normalised
+    (listing-headers stripped, fixed-form columns extracted) version,
+    so that compiler printouts are recognised just as well as clean source.
+
     Decision tree:
-      1. JCL signals dominant?               -> jcl
-      2. IDENTIFICATION + PROCEDURE present? -> cobol  (high confidence)
-      3. Many level lines + PIC, no DIVs?    -> copybook
-      4. Some level lines, ambiguous?        -> copybook (medium)
-      5. Else                                -> unknown
+      1. JCL signals dominant?
+      2. IDENTIFICATION/ID DIVISION + PROCEDURE DIVISION?  -> cobol high
+      3. PROCEDURE DIVISION only (header cut off)?         -> cobol medium
+      4. Multiple COBOL verbs + WORKING-STORAGE?           -> cobol medium
+      5. Lots of level lines + PIC, no DIVs?               -> copybook
+      6. Weak copybook signals?                            -> copybook low
+      7. Else                                              -> unknown (with raw debug info)
     """
     signals: list[str] = []
 
-    has_id     = bool(PAT_IDENTIFICATION.search(text))
-    has_env    = bool(PAT_ENVIRONMENT.search(text))
-    has_data   = bool(PAT_DATA_DIVISION.search(text))
-    has_proc   = bool(PAT_PROCEDURE.search(text))
+    # Build a normalised view: strip listing headers and extract col 7-72
+    raw_lines   = text.splitlines()
+    clean_lines, skipped = _strip_listing_headers(raw_lines)
+    if skipped:
+        signals.append(f"stripped {skipped} compiler-listing header lines")
+    cobol_lines = _extract_cobol_content(clean_lines)
+    norm_text   = "\n".join(cobol_lines)
+
+    # Search both raw and normalised
+    def _has(pat: re.Pattern) -> bool:
+        return bool(pat.search(text)) or bool(pat.search(norm_text))
+
+    has_id   = _has(PAT_IDENTIFICATION)
+    has_env  = _has(PAT_ENVIRONMENT)
+    has_data = _has(PAT_DATA_DIVISION)
+    has_proc = _has(PAT_PROCEDURE)
 
     jcl_hits   = sum(bool(p.search(text)) for p in (PAT_JCL_JOB, PAT_JCL_EXEC, PAT_JCL_DD))
-    level_hits = len(PAT_LEVEL_LINE.findall(text))
-    pic_hits   = len(PAT_PIC_CLAUSE.findall(text))
-    l88_hits   = len(PAT_LEVEL_88.findall(text))
+    level_hits = len(PAT_LEVEL_LINE.findall(norm_text)) + len(PAT_LEVEL_LINE.findall(text))
+    pic_hits   = len(PAT_PIC_CLAUSE.findall(norm_text)) + len(PAT_PIC_CLAUSE.findall(text))
+    l88_hits   = len(PAT_LEVEL_88.findall(norm_text))
+
+    # COBOL verb density heuristic (for files missing division headers)
+    COBOL_VERBS = re.compile(
+        r"\b(MOVE|PERFORM|IF|ELSE|END-IF|EVALUATE|WHEN|COMPUTE|ADD|SUBTRACT|"
+        r"MULTIPLY|DIVIDE|READ|WRITE|REWRITE|DELETE|OPEN|CLOSE|STOP\s+RUN|"
+        r"GO\s+TO|CALL|INITIALIZE|INSPECT|STRING|UNSTRING|ACCEPT|DISPLAY)\b",
+        re.I
+    )
+    verb_hits = len(COBOL_VERBS.findall(norm_text))
+    has_ws    = bool(re.search(r"WORKING-STORAGE\s+SECTION", norm_text, re.I))
+
+    # ── Decision tree ─────────────────────────────────────────────────────── #
 
     # 1) JCL
     if jcl_hits >= 2 and not (has_id or has_proc):
-        signals.append(f"jcl: {jcl_hits} statement patterns matched")
+        signals.append(f"jcl: {jcl_hits} JCL statement patterns")
         return "jcl", "high", signals
 
-    # 2) Full COBOL module
+    # 2) Full COBOL — both ID + PROCEDURE found
     if has_id and has_proc:
-        signals.append("IDENTIFICATION DIVISION found")
+        signals.append("IDENTIFICATION/ID DIVISION found")
         signals.append("PROCEDURE DIVISION found")
         if has_env:  signals.append("ENVIRONMENT DIVISION found")
         if has_data: signals.append("DATA DIVISION found")
         return "cobol", "high", signals
 
-    # 3) COBOL minus PROCEDURE (rare but possible — outline / stub)
-    if has_id and (has_env or has_data):
-        signals.append("IDENTIFICATION DIVISION found (no PROCEDURE) — partial module?")
+    # 3) PROCEDURE only (page break swallowed the header)
+    if has_proc and verb_hits >= 3:
+        signals.append("PROCEDURE DIVISION found (IDENTIFICATION header missing/cut)")
+        signals.append(f"{verb_hits} COBOL verbs found")
         return "cobol", "medium", signals
 
-    # 4) Copybook — lots of level lines + PIC, no DIVISIONs
+    # 4) No division headers but dense COBOL verbs + WORKING-STORAGE
+    if has_ws and verb_hits >= 5:
+        signals.append(f"WORKING-STORAGE SECTION found, {verb_hits} COBOL verbs")
+        signals.append("likely COBOL module without visible DIVISION headers")
+        return "cobol", "medium", signals
+
+    # 5) Identification only (stub / partial upload)
+    if has_id and (has_env or has_data):
+        signals.append("IDENTIFICATION DIVISION found (no PROCEDURE) — partial?")
+        return "cobol", "medium", signals
+
+    # 6) Copybook — level lines + PIC, no division keywords
+    level_hits = max(len(PAT_LEVEL_LINE.findall(norm_text)),
+                     len(PAT_LEVEL_LINE.findall(text)))
+    pic_hits   = max(len(PAT_PIC_CLAUSE.findall(norm_text)),
+                     len(PAT_PIC_CLAUSE.findall(text)))
     if level_hits >= 3 and pic_hits >= 1 and not (has_id or has_proc):
         signals.append(f"copybook: {level_hits} level lines, {pic_hits} PIC clauses")
         if l88_hits: signals.append(f"{l88_hits} 88-level condition names")
         return "copybook", "high" if level_hits >= 5 else "medium", signals
 
-    # 5) Weak copybook (only a few lines)
     if level_hits >= 1 and pic_hits >= 1:
         signals.append(f"copybook (weak): {level_hits} level lines, {pic_hits} PIC clauses")
         return "copybook", "low", signals
 
-    signals.append(f"unrecognised — level_hits={level_hits} pic_hits={pic_hits} jcl_hits={jcl_hits}")
+    # 7) Unknown — dump debug info to help the user
+    signals.append(
+        f"unrecognised — verbs={verb_hits} levels={level_hits} "
+        f"pic={pic_hits} jcl={jcl_hits} ws={has_ws}"
+    )
+    # Show raw head for manual inspection
+    sample = raw_lines[:5]
+    for i, ln in enumerate(sample, 1):
+        signals.append(f"  line{i}: {repr(ln[:80])}")
     return "unknown", "low", signals
 
 
