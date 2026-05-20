@@ -32,47 +32,95 @@ from ..parsers.copybook import CopyField
 #  Tuneable limits
 # ─────────────────────────────────────────────────────────────────────────────
 
-CONTEXT_LINES      = 40    # lines before/after each occurrence in source
+CONTEXT_LINES      = 40       # lines before/after each occurrence
 MAX_SOURCE_CHARS   = 80_000   # hard cap on source snippet sent to LLM
 MAX_COMPILED_CHARS = 40_000   # hard cap on compiled listing sent
+MAX_DATA_DIV_CHARS = 40_000   # hard cap on DATA DIVISION extract
+PARENT_CONTEXT     = 25       # smaller window for parent-group occurrences
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Listing pre-filter (strip object code + page headers)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_RE_OBJ_HEX     = re.compile(r"^\s*[0-9A-F]{6,8}\s+[0-9A-F]{2,}\s")  # object code in margin
+_RE_PAGE_HDR    = re.compile(r"^\s*(PP\s+\d|IEL|IGY|IDM|IGYCRP|LineID|PAGE\s+\d)", re.I)
+_RE_DATE_HDR    = re.compile(r"^\s*\d{2}[/.-]\d{2}[/.-]\d{2,4}\s+\d{2}[:.]\d{2}")
+_RE_FORMFEED    = re.compile(r"[\f\x0c]")
+
+
+def _clean_listing(text: str) -> str:
+    """
+    Remove obvious noise from a compiled listing:
+    - Pure object-code rows (hex columns in the margin)
+    - IBM/CA compiler page headers (PP, IEL, IGY, IDM…)
+    - Timestamp banner lines
+    - Form-feed page breaks
+    Keeps original line ordering — line numbers stay meaningful.
+    """
+    out: list[str] = []
+    for raw in text.splitlines():
+        line = _RE_FORMFEED.sub("", raw)
+        if not line.strip():
+            out.append(line)
+            continue
+        if _RE_OBJ_HEX.match(line):
+            continue
+        if _RE_PAGE_HDR.match(line):
+            continue
+        if _RE_DATE_HDR.match(line):
+            continue
+        out.append(line)
+    return "\n".join(out)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Context extraction helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _extract_context(text: str, field_name: str,
+def _extract_context(text: str, names: list[str] | str,
                      context: int = CONTEXT_LINES,
-                     max_chars: int = MAX_SOURCE_CHARS) -> tuple[str, int]:
+                     max_chars: int = MAX_SOURCE_CHARS) -> tuple[str, dict[str, int]]:
     """
-    Return (snippet, occurrence_count).
+    Return (snippet, hits_per_name).
 
-    Finds every line that contains `field_name` (word-boundary match),
-    collects a window of `context` lines around each hit, deduplicates,
-    and joins with a separator.  If no hit is found, returns the original
-    text truncated to max_chars.
+    `names` can be a single string or a list (leaf + parent groups). The
+    function searches each name (word-boundary, case-insensitive), merges
+    all windows together, and returns the per-name occurrence count.
+
+    If NO name has any hit, returns the original text truncated to max_chars
+    (the caller then knows to mark this as "no occurrence found").
     """
+    if isinstance(names, str):
+        names = [names]
+    names = [n for n in names if n]
+    if not names:
+        return text[:max_chars], {}
+
     lines = text.splitlines()
     n     = len(lines)
-    pat   = re.compile(r"\b" + re.escape(field_name) + r"\b", re.IGNORECASE)
 
-    hit_indices: list[int] = [i for i, ln in enumerate(lines) if pat.search(ln)]
+    hits_per_name: dict[str, int] = {}
+    all_hits: list[int] = []
+    for nm in names:
+        pat = re.compile(r"\b" + re.escape(nm) + r"\b", re.IGNORECASE)
+        idx = [i for i, ln in enumerate(lines) if pat.search(ln)]
+        hits_per_name[nm] = len(idx)
+        all_hits.extend(idx)
 
-    if not hit_indices:
+    if not all_hits:
         truncated = text[:max_chars]
         if len(text) > max_chars:
             truncated += f"\n[... truncated — {len(lines)} lines total ...]"
-        return truncated, 0
+        return truncated, hits_per_name
 
-    # Merge overlapping windows
     selected: list[bool] = [False] * n
-    for idx in hit_indices:
+    for idx in all_hits:
         lo = max(0, idx - context)
         hi = min(n, idx + context + 1)
         for j in range(lo, hi):
             selected[j] = True
 
-    # Build snippet with line numbers and gap markers
     parts: list[str] = []
     in_gap = False
     for i, (keep, line) in enumerate(zip(selected, lines), 1):
@@ -87,13 +135,14 @@ def _extract_context(text: str, field_name: str,
     snippet = "\n".join(parts)
     if len(snippet) > max_chars:
         snippet = snippet[:max_chars] + "\n[... truncated ...]"
-    return snippet, len(hit_indices)
+    return snippet, hits_per_name
 
 
-def _data_division_header(source: str, max_lines: int = 80) -> str:
+def _data_division_block(source: str, max_chars: int = MAX_DATA_DIV_CHARS) -> str:
     """
-    Extract the DATA DIVISION block (up to PROCEDURE DIVISION or max_lines).
-    Gives the LLM field definitions even when the field itself has no MOVE.
+    Extract the FULL DATA DIVISION block (until PROCEDURE DIVISION).
+    Capped by character count, NOT by line count — large copybooks now
+    fit until the cap. Returns "" if no DATA DIVISION marker found.
     """
     lines  = source.splitlines()
     start  = None
@@ -107,8 +156,10 @@ def _data_division_header(source: str, max_lines: int = 80) -> str:
             break
     if start is None:
         return ""
-    block = lines[start: min(end, start + max_lines)]
-    return "\n".join(block)
+    block = "\n".join(lines[start:end])
+    if len(block) > max_chars:
+        block = block[:max_chars] + f"\n[... truncated — DATA DIVISION block ...]"
+    return block
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -250,8 +301,23 @@ def _build_prompt(
     compiled:     str,
     input_desc:   str,
     target_desc:  str,
-) -> str:
-    """Builds the user prompt for one field — with focused context."""
+    parents:      list[str] | None = None,
+) -> tuple[str, dict]:
+    """
+    Builds the user prompt for one field and returns (prompt_text, diagnostic).
+
+    diagnostic = {
+        "direct_hits": int,           # occurrences of field.name in source
+        "parent_hits": dict[str,int], # occurrences per parent group
+        "compiled_direct_hits": int,
+        "compiled_parent_hits": dict[str,int],
+        "parents_used": list[str],
+        "data_div_chars": int,
+        "source_chars": int,
+        "compiled_chars": int,
+    }
+    """
+    parents = parents or []
 
     # PIC info
     pic_info = f"PIC {field.pic}" if field.pic else "(groupe, pas de PIC)"
@@ -264,32 +330,68 @@ def _build_prompt(
 
     libelle = field.description or "(non trouvé dans les commentaires)"
 
-    # Focused source extract
-    source_snippet, src_hits = _extract_context(source_cobol, field.name)
-    data_div  = _data_division_header(source_cobol)
-    src_note  = (f"({src_hits} occurrence(s) trouvée(s) — fenêtre ±{CONTEXT_LINES} lignes)"
-                 if src_hits else "(aucune occurrence directe — source complet tronqué)")
+    # Pre-filter the compiled listing once
+    compiled_clean = _clean_listing(compiled) if compiled else ""
 
-    # Focused compiled extract (lighter)
-    compiled_snippet, cmp_hits = _extract_context(
-        compiled, field.name,
-        context=20,
-        max_chars=MAX_COMPILED_CHARS,
-    ) if compiled else ("(absent)", 0)
-    cmp_note = f"({cmp_hits} occurrence(s))" if compiled else "(non fourni)"
+    # ── Source: search leaf + parents (parents get a smaller window) ───────
+    names_all = [field.name] + parents
+    src_snippet, src_hits = _extract_context(
+        source_cobol, names_all, context=CONTEXT_LINES, max_chars=MAX_SOURCE_CHARS,
+    )
+    direct_hits = src_hits.get(field.name, 0)
+    parent_hits = {p: src_hits.get(p, 0) for p in parents}
 
+    if direct_hits:
+        src_note = f"({direct_hits} occurrence(s) directe(s) du champ — fenêtre ±{CONTEXT_LINES} lignes)"
+    elif any(parent_hits.values()):
+        used = [p for p, n in parent_hits.items() if n]
+        src_note = (f"(0 occurrence directe — recherche élargie aux groupes parents : "
+                    f"{', '.join(used)} — voir lignes ci-dessous)")
+    else:
+        src_note = "(aucune occurrence directe ni via parents — source complet tronqué)"
+
+    # ── Compiled listing: same logic ────────────────────────────────────────
+    if compiled_clean:
+        cmp_snippet, cmp_hits = _extract_context(
+            compiled_clean, names_all, context=20, max_chars=MAX_COMPILED_CHARS,
+        )
+        cmp_direct = cmp_hits.get(field.name, 0)
+        cmp_parent = {p: cmp_hits.get(p, 0) for p in parents}
+        cmp_note = f"({cmp_direct} occurrence(s) du champ, {sum(cmp_parent.values())} via parents)"
+    else:
+        cmp_snippet = "(non fourni)"
+        cmp_direct  = 0
+        cmp_parent  = {}
+        cmp_note    = "(non fourni)"
+
+    # ── DATA DIVISION complète (cap par chars) ─────────────────────────────
+    data_div = _data_division_block(source_cobol)
     data_section = (
-        f"\n## En-tête DATA DIVISION (définitions de zones)\n```\n{data_div}\n```\n"
+        f"\n## DATA DIVISION complète (définitions de zones)\n```\n{data_div}\n```\n"
         if data_div else ""
     )
 
-    occurrences_warning = "" if src_hits else (
-        "\n⚠️ ATTENTION : aucune occurrence directe du nom de champ trouvée dans "
-        "les extraits ci-dessous. Si tu ne trouves pas de règle d'alimentation "
-        "explicite, applique la règle R5 : écris 'Non trouvé dans le code source'.\n"
+    parents_note = (
+        f"Groupes parents de ce champ (à consulter si le leaf n'apparaît pas directement) : "
+        f"{' → '.join(parents)}"
+        if parents else "(aucun groupe parent détecté)"
     )
 
-    return f"""\
+    occurrences_warning = ""
+    if not direct_hits and not any(parent_hits.values()):
+        occurrences_warning = (
+            "\n⚠️ ATTENTION : aucune occurrence directe NI parent trouvée dans le code. "
+            "Si vraiment rien → applique la VARIANTE B (Non trouvé).\n"
+        )
+    elif not direct_hits:
+        occurrences_warning = (
+            "\n💡 INDICE : ce champ n'apparaît PAS directement, mais son/ses groupe(s) "
+            f"parent(s) ({', '.join(p for p in parents if parent_hits.get(p))}) "
+            "sont référencés. Cherche des MOVE/INITIALIZE sur le groupe parent — "
+            "ils alimentent indirectement ce champ.\n"
+        )
+
+    prompt = f"""\
 ## CHAMP À SPÉCIFIER
 ┌─────────────────────────────────────────────────────────────┐
 │ Nom technique : {field.name:<44} │
@@ -297,6 +399,7 @@ def _build_prompt(
 │ Type (PIC)    : {pic_info:<44} │
 │ Niveau COBOL  : {field.level:<44} │
 └─────────────────────────────────────────────────────────────┘
+{parents_note}
 
 RAPPEL CRITIQUE : tu ne dois écrire QUE ce qui est littéralement présent
 dans le code ci-dessous. Chaque règle doit avoir un [numéro de ligne].
@@ -314,18 +417,30 @@ dans le code ci-dessous. Chaque règle doit avoir un [numéro de ligne].
 ## Extraits du source COBOL {src_note}
 (Numéros de ligne affichés à gauche — utilise-les pour tes citations)
 ```
-{source_snippet}
+{src_snippet}
 ```
 
-## Extraits du listing compilé {cmp_note}
+## Extraits du listing compilé (nettoyé) {cmp_note}
 ```
-{compiled_snippet}
+{cmp_snippet}
 ```
 
 ---
 Produis maintenant la spécification d'alimentation du champ **{field.name}** \
-({libelle}) en respectant STRICTEMENT le format et les règles R1 à R8.
+({libelle}) en respectant STRICTEMENT le format et les règles R1 à R9.
 """
+
+    diagnostic = {
+        "direct_hits":          direct_hits,
+        "parent_hits":          parent_hits,
+        "compiled_direct_hits": cmp_direct,
+        "compiled_parent_hits": cmp_parent,
+        "parents_used":         parents,
+        "data_div_chars":       len(data_div),
+        "source_chars":         len(src_snippet),
+        "compiled_chars":       len(cmp_snippet) if compiled_clean else 0,
+    }
+    return prompt, diagnostic
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -336,7 +451,8 @@ Produis maintenant la spécification d'alimentation du champ **{field.name}** \
 class FieldSpec:
     field_name: str
     markdown:   str
-    found:      bool       # False if "non trouvé" in output
+    found:      bool                  # False if "non trouvé" in output
+    diagnostic: dict | None = None    # context metrics (occurrences, chars sent)
 
 
 def specify_field(
@@ -345,17 +461,20 @@ def specify_field(
     compiled:     str,
     input_desc:   str,
     target_desc:  str,
+    parents:      list[str] | None = None,
     temperature:  float = 0.0,
 ) -> FieldSpec:
     """
     Calls the LLM to produce the alimentation spec for one target field.
-    Returns a FieldSpec with the raw Markdown.
+    Returns a FieldSpec with the raw Markdown + a diagnostic dict.
     """
     client = build_client()
     model  = get_model("doc")
 
     system = SYSTEM_PROMPT.replace("{field_name}", field.name)
-    user   = _build_prompt(field, source_cobol, compiled, input_desc, target_desc)
+    user, diagnostic = _build_prompt(
+        field, source_cobol, compiled, input_desc, target_desc, parents=parents,
+    )
 
     resp = client.chat.completions.create(
         model       = model,
@@ -371,4 +490,5 @@ def specify_field(
     md  = (msg.content or getattr(msg, "reasoning_content", None) or "").strip()
     found = bool(md) and "non trouvé" not in md.lower() and "aucune alimentation" not in md.lower()
 
-    return FieldSpec(field_name=field.name, markdown=md, found=found)
+    return FieldSpec(field_name=field.name, markdown=md, found=found,
+                     diagnostic=diagnostic)

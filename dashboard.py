@@ -622,6 +622,13 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
                       onclick="loadFieldsPreview(_currentProject)">&#8635;</button>
             </div>
           </div>
+          <div style="padding:6px 12px;font-size:11px;color:#64748b;background:#f8fafc;
+                      border-bottom:1px solid #e2e8f0">
+            <b>Contexte LLM</b> :
+            <span style="color:#15803d;font-weight:bold">d</span> = occurrences directes du champ ·
+            <span style="color:#0369a1">p</span> = occurrences via groupe(s) parent(s) (MOVE de groupe) ·
+            <span style="color:#64748b">Nk</span> = caractères envoyés
+          </div>
           <table class="field-table" id="field-table">
             <thead>
               <tr>
@@ -630,6 +637,7 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
                 <th>Libellé métier</th>
                 <th>PIC</th>
                 <th style="width:110px">Statut</th>
+                <th style="width:130px" title="Occurrences directes / via groupes parents — caractères envoyés au LLM">Contexte LLM</th>
                 <th style="width:80px"></th>
               </tr>
             </thead>
@@ -810,12 +818,34 @@ function renderFieldTable(){
     const desc = f.description
       ? `<span style="color:#1e293b;font-weight:500">${esc(f.description)}</span>`
       : `<span style="color:#94a3b8;font-style:italic">—</span>`;
+
+    // Diagnostic cell: occurrences directes / parents + taille extrait
+    let diagCell = '<span style="color:#cbd5e1">—</span>';
+    if(st.diag){
+      const d = st.diag.direct_hits || 0;
+      const p = Object.values(st.diag.parent_hits || {}).reduce((a,b)=>a+b,0);
+      const kc = Math.round((st.diag.source_chars||0)/1000);
+      const parentsUsed = (st.diag.parents_used||[]).join(" › ");
+      const title = parentsUsed
+        ? `Parents recherchés : ${parentsUsed}`
+        : 'Aucun parent';
+      const dColor = d>0 ? '#15803d' : '#b91c1c';
+      const pColor = p>0 ? '#0369a1' : '#94a3b8';
+      diagCell =
+        `<span title="${esc(title)}" style="font-family:Consolas,monospace;font-size:11px">`+
+          `<span style="color:${dColor};font-weight:bold">d:${d}</span> · `+
+          `<span style="color:${pColor}">p:${p}</span> · `+
+          `<span style="color:#64748b">${kc}k</span>`+
+        `</span>`;
+    }
+
     return `<tr id="ftr-${esc(f.name)}" class="${st.status==="running"?"ft-running":""}">
       <td style="text-align:center;font-size:13px">${spin}</td>
       <td class="ft-name">${esc(f.name)}</td>
       <td>${desc}</td>
       <td class="ft-pic">${esc(f.pic||"—")}</td>
       <td><span class="badge ${badgeCls}">${badgeTxt}</span></td>
+      <td>${diagCell}</td>
       <td>
         <button class="btn-analyse" onclick="startRunField('${esc(f.name)}')"
                 ${busy||st.status==="running"?"disabled":""}>
@@ -826,10 +856,11 @@ function renderFieldTable(){
   }).join("");
 }
 
-function setFieldStatus(name, status, markdown){
+function setFieldStatus(name, status, markdown, diag){
   if(!_fieldState[name]) _fieldState[name]={status:"idle",markdown:""};
   _fieldState[name].status   = status;
   if(markdown) _fieldState[name].markdown = markdown;
+  if(diag)     _fieldState[name].diag     = diag;
   renderFieldTable();
 }
 
@@ -923,8 +954,9 @@ function connectSSE(runId){
       document.getElementById("prog-bar").style.width = pct + "%";
       document.getElementById("prog-label").textContent =
         _doneFields + " / " + _totalFields + " champs traités (" + pct + "%)";
-      // Update field table badge
-      setFieldStatus(ev.field, ev.found ? "ok" : "miss", ev.markdown||"");
+      // Update field table badge + diagnostic
+      setFieldStatus(ev.field, ev.found ? "ok" : "miss",
+                     ev.markdown||"", ev.diagnostic||null);
     }
     else if(ev.type === "done"){
       _sse.close();

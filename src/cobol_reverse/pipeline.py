@@ -28,7 +28,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .console import log
-from .parsers.copybook import parse_copybook_file, CopyField
+from .parsers.copybook import parse_copybook_file, parent_chain, CopyField
 from .agents.field_specifier import specify_field
 
 
@@ -95,6 +95,12 @@ class InputBundle:
         # Leaf = has a PIC clause (actual data field, not a group)
         leaves = [f for f in all_fields if not f.is_group]
         return leaves
+
+    def all_target_fields(self) -> list[CopyField]:
+        """Parse target copybook and return ALL fields (groups + leaves)."""
+        if not self.target_path:
+            return []
+        return parse_copybook_file(self.target_path)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -218,12 +224,17 @@ def run_pipeline(
     out_path     = OUTPUT_DIR / f"{project_name.upper()}_SPEC.md"
     existing_specs: dict[str, dict] = _load_existing_specs(out_path)
 
+    # ── Pre-compute parent chains (needed for group-MOVE detection) ──────── #
+    full_target = bundle.all_target_fields()
+
     # ── Field-by-field LLM calls ─────────────────────────────────────────── #
     new_specs: list[dict] = []
     for i, fld in enumerate(target_fields, 1):
         log("doc", f"[{i}/{len(target_fields)}] {fld.name}")
+        parents = parent_chain(full_target, fld.name)
         emit({"type": "field_start", "field": fld.name,
-              "index": i, "total": len(target_fields)})
+              "index": i, "total": len(target_fields),
+              "parents": parents})
         try:
             result = specify_field(
                 field        = fld,
@@ -231,6 +242,7 @@ def run_pipeline(
                 compiled     = compiled,
                 input_desc   = input_desc,
                 target_desc  = target_desc,
+                parents      = parents,
             )
             spec = {
                 "field_name": fld.name,
@@ -239,10 +251,15 @@ def run_pipeline(
             }
             new_specs.append(spec)
             existing_specs[fld.name] = spec          # update cache
+            diag = result.diagnostic or {}
             emit({"type": "field_done", "field": fld.name,
                   "index": i, "found": result.found,
-                  "markdown": result.markdown})
-            log("doc", f"  {'✓ trouvé' if result.found else '○ non trouvé'}")
+                  "markdown": result.markdown,
+                  "diagnostic": diag})
+            log("doc", f"  {'✓ trouvé' if result.found else '○ non trouvé'}"
+                       f"  (direct={diag.get('direct_hits',0)}, "
+                       f"parents={sum(diag.get('parent_hits',{}).values())}, "
+                       f"src={diag.get('source_chars',0)} chars)")
         except Exception as e:
             log("error", f"  {fld.name}: {e}")
             fallback_md = f"### {fld.name}\n\n**Erreur** : {e}"

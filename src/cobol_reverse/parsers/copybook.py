@@ -459,6 +459,41 @@ def parse_copybook_file(path: Path) -> list[CopyField]:
     return fields
 
 
+def parent_chain(fields: list[CopyField], leaf_name: str) -> list[str]:
+    """
+    Return the chain of group ancestors of `leaf_name`, from outermost (lowest
+    level number) to innermost. Uses level numbers and source order.
+
+    Example:
+        01 WS-RECORD.
+          05 WS-MONTANTS.
+            10 MNT-HT  PIC 9(8).
+        → parent_chain(fields, "MNT-HT") == ["WS-RECORD", "WS-MONTANTS"]
+    """
+    leaf_name = leaf_name.upper()
+    parents: list[str] = []
+    leaf_idx: int | None = None
+    leaf_level: int | None = None
+    for i, f in enumerate(fields):
+        if f.name == leaf_name and not f.is_group:
+            leaf_idx, leaf_level = i, f.level
+            break
+    if leaf_idx is None or leaf_level is None:
+        return []
+
+    # Walk backwards collecting strictly-decreasing levels
+    current_level = leaf_level
+    for j in range(leaf_idx - 1, -1, -1):
+        f = fields[j]
+        if f.level < current_level:
+            parents.append(f.name)
+            current_level = f.level
+            if current_level <= 1:
+                break
+    parents.reverse()
+    return parents
+
+
 def fields_summary(fields: list[CopyField]) -> str:
     """Human-readable summary of parsed fields."""
     leaf  = [f for f in fields if not f.is_group]
