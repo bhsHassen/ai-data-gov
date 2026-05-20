@@ -500,5 +500,45 @@ def specify_field(
     md  = (msg.content or getattr(msg, "reasoning_content", None) or "").strip()
     found = bool(md) and "non trouvé" not in md.lower() and "aucune alimentation" not in md.lower()
 
+    # ── Post-processing : force the H3 heading to "FIELD — LIBELLÉ" ────────
+    # The LLM frequently drops the libellé from the heading even when asked.
+    # We rewrite the first ### line of the response (or prepend one if missing).
+    md = _force_heading(md, field.name, heading)
+
     return FieldSpec(field_name=field.name, markdown=md, found=found,
                      diagnostic=diagnostic)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Heading post-processor
+# ─────────────────────────────────────────────────────────────────────────────
+
+_RE_H3_FIELD = re.compile(r"^###\s+.*$", re.MULTILINE)
+
+
+def _force_heading(markdown: str, field_name: str, heading: str) -> str:
+    """
+    Ensure the field spec starts with the canonical composite heading
+    '### {field_name} — {LIBELLÉ}'. If the model wrote a different H3
+    (e.g. just '### F1788'), we rewrite it. If no H3 exists, we prepend one.
+
+    `heading` is already the fully-composed string (with or without em-dash
+    suffix depending on whether the label is known).
+    """
+    expected = f"### {heading}"
+    if not markdown.strip():
+        return expected + "\n\n⚠️ **Réponse vide du LLM.**"
+
+    # Find the FIRST ### line in the response
+    m = _RE_H3_FIELD.search(markdown)
+    if m:
+        existing = m.group(0).strip()
+        if existing == expected:
+            return markdown                                     # already correct
+        # Only rewrite if it concerns OUR field (avoid touching nested H3s)
+        if field_name.upper() in existing.upper():
+            return markdown[:m.start()] + expected + markdown[m.end():]
+        # Otherwise prepend a heading
+        return expected + "\n" + markdown
+    # No H3 found → prepend
+    return expected + "\n\n" + markdown
