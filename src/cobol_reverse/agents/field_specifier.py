@@ -256,7 +256,7 @@ FORMAT DE RÉPONSE — DEUX VARIANTES EXCLUSIVES, JAMAIS LES DEUX
 ▶ VARIANTE A — utilise ce format SI ET SEULEMENT SI tu trouves au moins
                une alimentation explicite dans le code :
 
-### {field_name}
+### {field_heading}
 **Nom technique**     : {field_name}
 **Libellé métier**    : <libellé du commentaire, sinon "(non trouvé)">
 **Type COBOL**        : <PIC clause exacte, ex: PIC X(006)>
@@ -278,7 +278,7 @@ FORMAT DE RÉPONSE — DEUX VARIANTES EXCLUSIVES, JAMAIS LES DEUX
 ▶ VARIANTE B — utilise ce format SI ET SEULEMENT SI aucune alimentation
                n'est trouvée dans le code :
 
-### {field_name}
+### {field_heading}
 **Nom technique**     : {field_name}
 **Libellé métier**    : <libellé du commentaire, sinon "(non trouvé)">
 **Type COBOL**        : <PIC clause exacte>
@@ -426,6 +426,11 @@ dans le code ci-dessous. Chaque règle doit avoir un [numéro de ligne].
 ```
 
 ---
+TITRE OBLIGATOIRE de ta réponse (copie cette ligne EXACTEMENT, telle quelle,
+sans la modifier) :
+
+### {field.name} — {libelle.upper()}
+
 Produis maintenant la spécification d'alimentation du champ **{field.name}** \
 ({libelle}) en respectant STRICTEMENT le format et les règles R1 à R9.
 """
@@ -471,7 +476,12 @@ def specify_field(
     client = build_client()
     model  = get_model("doc")
 
+    # Build the composite heading: "F1788 — CODE TYPE USAGE CONTREPARTIE"
+    label = (field.description or "").strip().upper()
+    heading = f"{field.name} — {label}" if label else field.name
+
     system = SYSTEM_PROMPT.replace("{field_name}", field.name)
+    system = system.replace("{field_heading}", heading)
     user, diagnostic = _build_prompt(
         field, source_cobol, compiled, input_desc, target_desc, parents=parents,
     )
