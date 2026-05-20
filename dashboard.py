@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 
 from src.cobol_reverse.console import log
 from src.cobol_reverse.pipeline import run_pipeline, InputBundle
+from src.cobol_reverse.migration_pipeline import run_migration_pipeline
 
 load_dotenv()
 
@@ -46,6 +47,19 @@ def _run_bg(run_id: str, project_folder: Path, field_filter: list[str] | None = 
         return
     try:
         run_pipeline(project_folder, q, field_filter=field_filter)
+    except Exception as e:
+        q.put({"type": "error", "message": str(e)})
+    finally:
+        q.put(None)   # sentinel
+
+
+def _run_migration_bg(run_id: str, project_folder: Path):
+    with _runs_lock:
+        q = _runs.get(run_id)
+    if q is None:
+        return
+    try:
+        run_migration_pipeline(project_folder, q)
     except Exception as e:
         q.put({"type": "error", "message": str(e)})
     finally:
@@ -193,6 +207,47 @@ def api_run(project: str):
 @app.route("/api/events/<run_id>")
 def api_events(run_id: str):
     return _sse(run_id)
+
+
+@app.route("/api/migrate/<project>", methods=["POST"])
+def api_migrate(project: str):
+    """Start the migration pipeline for one project. Requires SPEC.md to exist."""
+    folder = INPUT_DIR / project
+    if not folder.exists():
+        return jsonify({"error": "project not found"}), 404
+    spec = OUTPUT_DIR / f"{project.upper()}_SPEC.md"
+    if not spec.exists():
+        return jsonify({
+            "error": "spec missing",
+            "message": (f"Génère d'abord la spécification champ-par-champ "
+                        f"({spec.name} introuvable dans output/).")
+        }), 400
+
+    run_id = str(uuid.uuid4())
+    q: queue.Queue = queue.Queue()
+    with _runs_lock:
+        _runs[run_id] = q
+    t = threading.Thread(target=_run_migration_bg, args=(run_id, folder), daemon=True)
+    t.start()
+    return jsonify({"run_id": run_id})
+
+
+@app.route("/api/migration-events/<run_id>")
+def api_migration_events(run_id: str):
+    return _sse(run_id)
+
+
+@app.route("/api/migration-status/<project>")
+def api_migration_status(project: str):
+    """Tell whether SPEC.md and MIGRATION.md exist for this project."""
+    spec      = OUTPUT_DIR / f"{project.upper()}_SPEC.md"
+    migration = OUTPUT_DIR / f"{project.upper()}_MIGRATION.md"
+    return jsonify({
+        "spec_exists":      spec.exists(),
+        "migration_exists": migration.exists(),
+        "spec_file":        spec.name      if spec.exists() else None,
+        "migration_file":   migration.name if migration.exists() else None,
+    })
 
 
 @app.route("/api/spec/<path:filename>")
@@ -439,6 +494,16 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
 .panel{display:none;flex:1;overflow:auto;padding:24px;flex-direction:column;gap:16px}
 .panel.active{display:flex}
 
+/* Migration pipeline boxes */
+.mig-node{padding:10px 14px;border-radius:6px;font-size:12px;
+          background:#f1f5f9;border:1px solid #cbd5e1;color:#475569;
+          font-weight:600;white-space:nowrap;transition:all .25s}
+.mig-node.running{background:#dbeafe;border-color:#2563eb;color:#1e40af;
+                  box-shadow:0 0 0 3px rgba(37,99,235,.15)}
+.mig-node.done   {background:#dcfce7;border-color:#16a34a;color:#15803d}
+.mig-node.err    {background:#fee2e2;border-color:#dc2626;color:#991b1b}
+.mig-arrow{color:#94a3b8;font-size:14px}
+
 /* Cards */
 .card{background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:20px}
 .card-title{font-size:12px;font-weight:bold;text-transform:uppercase;
@@ -588,6 +653,7 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
       <div class="tab active" onclick="showTab('setup')">&#9881; Configuration</div>
       <div class="tab"        onclick="showTab('progress')">&#9654; Analyse</div>
       <div class="tab"        onclick="showTab('spec')">&#128196; Sp&eacute;cification</div>
+      <div class="tab"        onclick="showTab('migration')">&#128229; Migration</div>
     </div>
 
     <!-- SETUP tab -->
@@ -688,11 +754,51 @@ body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14p
         </div>
       </div>
     </div>
+
+    <!-- MIGRATION tab -->
+    <div class="panel" id="panel-migration">
+      <div class="card">
+        <div class="card-title" style="justify-content:space-between">
+          <span>Dossier de migration &mdash; <span id="mig-proj-name">—</span></span>
+          <div style="display:flex;gap:8px">
+            <button id="btn-migrate" class="btn-run" onclick="startMigration()"
+                    style="padding:6px 18px;font-size:13px">
+              &#9889; G&eacute;n&eacute;rer le dossier de migration
+            </button>
+            <button id="btn-export-migration-pdf" onclick="exportMigrationPdf()" disabled
+                    style="padding:6px 14px;background:#2563eb;color:#fff;border:none;
+                           border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold">
+              &#128438; PDF
+            </button>
+          </div>
+        </div>
+        <div id="mig-precondition" style="padding:10px 16px;font-size:12px;color:#64748b">
+          La sp&eacute;cification champ-par-champ doit &ecirc;tre g&eacute;n&eacute;r&eacute;e
+          au pr&eacute;alable (onglet <b>Sp&eacute;cification</b>).
+        </div>
+        <div id="mig-pipeline" style="display:none;padding:14px 18px;
+             background:#f8fafc;border-top:1px solid #e2e8f0;
+             display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
+        <div id="mig-progress-label" style="padding:10px 18px;font-size:12px;
+             color:#475569;border-top:1px solid #e2e8f0;display:none"></div>
+      </div>
+
+      <div id="mig-viewer">
+        <div class="spec-empty">
+          <div class="icon">&#128229;</div>
+          <p>Le dossier de migration g&eacute;n&eacute;r&eacute; s'affichera ici.</p>
+          <p style="font-size:12px;margin-top:8px;color:#64748b">
+            Il contient : pr&eacute;ambule &middot; cartographie INPUT&rarr;TARGET &middot;
+            DDL SQL &middot; pseudo-code &middot; points d'attention migration.
+          </p>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
 <script>
-const TABS = ["setup","progress","spec"];
+const TABS = ["setup","progress","spec","migration"];
 let _currentProject = null;
 let _fieldRows = {};
 let _runId = null;
@@ -780,6 +886,9 @@ async function selectProject(name){
 
   // Auto-load spec if exists
   if(proj.spec){ refreshSpecs(); }
+
+  // Update migration tab context
+  updateMigrationContext(name);
 }
 
 // ── Field table ───────────────────────────────────────────────────────────
@@ -1021,6 +1130,140 @@ function exportPdf(){
   const name = document.getElementById("spec-select").value;
   if(!name) return;
   window.open("/api/export-pdf/" + encodeURIComponent(name), "_blank");
+}
+
+// ── Migration tab ─────────────────────────────────────────────────────────
+const MIG_AGENTS = [
+  {key:"program_summary",    label:"Préambule"},
+  {key:"flow_tracer",        label:"Cartographie I→T"},
+  {key:"ddl_generator",      label:"DDL SQL"},
+  {key:"pseudo_coder",       label:"Pseudo-code"},
+  {key:"migration_concerns", label:"Points d'attention"},
+];
+let _migSse  = null;
+let _migSections = {};
+
+async function updateMigrationContext(project){
+  document.getElementById("mig-proj-name").textContent = project || "—";
+  const btn = document.getElementById("btn-migrate");
+  const pre = document.getElementById("mig-precondition");
+  const pdfBtn = document.getElementById("btn-export-migration-pdf");
+  if(!project){ btn.disabled = true; return; }
+  const res  = await fetch("/api/migration-status/" + encodeURIComponent(project));
+  const data = await res.json();
+  btn.disabled = !data.spec_exists;
+  pre.innerHTML = data.spec_exists
+    ? `La spécification <code>${esc(data.spec_file)}</code> est disponible. Prêt à générer le dossier de migration.`
+    : `&#9888;&#65039; Lance d'abord l'onglet <b>Spécification</b> pour générer <code>${esc(project.toUpperCase())}_SPEC.md</code>.`;
+  pdfBtn.disabled = !data.migration_exists;
+  if(data.migration_exists){
+    loadMigrationDoc(data.migration_file);
+  } else {
+    document.getElementById("mig-viewer").innerHTML =
+      '<div class="spec-empty"><div class="icon">&#128229;</div>'+
+      '<p>Le dossier de migration généré s\'affichera ici.</p></div>';
+  }
+}
+
+function renderMigPipeline(){
+  const box = document.getElementById("mig-pipeline");
+  box.style.display = "flex";
+  box.innerHTML = MIG_AGENTS.map((a,i)=>{
+    const cls = a.status || "";
+    const icon = cls==="done" ? "&#10003;" :
+                 cls==="err"  ? "&#10007;" :
+                 cls==="running" ? "&#9883;" : "&#9711;";
+    const node = `<span class="mig-node ${cls}" id="mig-n-${a.key}">${icon} ${a.label}</span>`;
+    return i < MIG_AGENTS.length-1
+      ? node + '<span class="mig-arrow">&rsaquo;</span>'
+      : node;
+  }).join("");
+}
+
+async function startMigration(){
+  if(!_currentProject) return;
+  const btn = document.getElementById("btn-migrate");
+  btn.disabled = true;
+  _migSections = {};
+  MIG_AGENTS.forEach(a => a.status = "");
+  renderMigPipeline();
+  document.getElementById("mig-progress-label").style.display = "block";
+  document.getElementById("mig-progress-label").textContent = "Initialisation…";
+  document.getElementById("mig-viewer").innerHTML =
+    '<div class="spec-empty"><div class="icon">&#9883;</div>'+
+    '<p>Génération en cours…</p></div>';
+
+  const res = await fetch("/api/migrate/" + encodeURIComponent(_currentProject),
+    {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+  const data = await res.json();
+  if(!res.ok){
+    document.getElementById("mig-progress-label").textContent =
+      "Erreur : " + (data.message || data.error || "?");
+    btn.disabled = false;
+    return;
+  }
+  connectMigrationSSE(data.run_id);
+}
+
+function connectMigrationSSE(runId){
+  if(_migSse) _migSse.close();
+  _migSse = new EventSource("/api/migration-events/" + runId);
+  _migSse.onmessage = e => {
+    const ev = JSON.parse(e.data);
+
+    if(ev.type === "start"){
+      document.getElementById("mig-progress-label").textContent =
+        "0 / " + ev.agents.length + " agent(s)";
+    }
+    else if(ev.type === "agent_start"){
+      const a = MIG_AGENTS.find(x => x.key === ev.agent);
+      if(a){ a.status = "running"; renderMigPipeline(); }
+      document.getElementById("mig-progress-label").textContent =
+        ev.index + " / " + ev.total + " — " + (ev.label || ev.agent);
+    }
+    else if(ev.type === "agent_done"){
+      const a = MIG_AGENTS.find(x => x.key === ev.agent);
+      if(a){ a.status = ev.error ? "err" : "done"; renderMigPipeline(); }
+      _migSections[ev.agent] = ev.markdown || "";
+      // Live preview: assemble what we have so far
+      const partial = MIG_AGENTS.map(x => _migSections[x.key] || "")
+                                .filter(Boolean).join("\n\n---\n\n");
+      document.getElementById("mig-viewer").innerHTML =
+        '<div class="spec-content">' + renderMd(partial) + '</div>';
+    }
+    else if(ev.type === "done"){
+      _migSse.close();
+      document.getElementById("btn-migrate").disabled = false;
+      document.getElementById("mig-progress-label").textContent =
+        "✓ Terminé — dossier sauvé : " + ev.output;
+      // Refresh status + load full doc
+      updateMigrationContext(_currentProject);
+    }
+    else if(ev.type === "error"){
+      _migSse.close();
+      document.getElementById("btn-migrate").disabled = false;
+      document.getElementById("mig-progress-label").textContent =
+        "Erreur : " + ev.message;
+    }
+  };
+  _migSse.onerror = () => {
+    document.getElementById("mig-progress-label").textContent =
+      "Connexion SSE interrompue.";
+  };
+}
+
+async function loadMigrationDoc(filename){
+  const res = await fetch("/api/spec/" + encodeURIComponent(filename));
+  if(!res.ok) return;
+  const md  = await res.text();
+  document.getElementById("mig-viewer").innerHTML =
+    '<div class="spec-content">' + renderMd(md) + '</div>';
+}
+
+function exportMigrationPdf(){
+  if(!_currentProject) return;
+  const filename = _currentProject.toUpperCase() + "_MIGRATION.md";
+  window.open("/api/export-pdf/" + encodeURIComponent(filename), "_blank");
 }
 
 function renderMd(md){

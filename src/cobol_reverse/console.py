@@ -14,6 +14,8 @@ COLORS = {
     "rules":        "\033[38;5;208m",  # orange
     "cartographer": "\033[38;5;37m",   # teal
     "validator":    "\033[38;5;160m",  # red
+    "migration":    "\033[38;5;165m",  # magenta-pink
+    "pipeline":     "\033[38;5;39m",   # cyan-blue
     "error":        "\033[38;5;196m",  # bright red
     "info":         "\033[37m",        # light gray
 }
