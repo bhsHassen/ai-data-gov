@@ -1160,8 +1160,8 @@ async function updateMigrationContext(project){
     loadMigrationDoc(data.migration_file);
   } else {
     document.getElementById("mig-viewer").innerHTML =
-      '<div class="spec-empty"><div class="icon">&#128229;</div>'+
-      '<p>Le dossier de migration généré s\'affichera ici.</p></div>';
+      `<div class="spec-empty"><div class="icon">&#128229;</div>`+
+      `<p>Le dossier de migration généré s'affichera ici.</p></div>`;
   }
 }
 
@@ -1227,7 +1227,7 @@ function connectMigrationSSE(runId){
       _migSections[ev.agent] = ev.markdown || "";
       // Live preview: assemble what we have so far
       const partial = MIG_AGENTS.map(x => _migSections[x.key] || "")
-                                .filter(Boolean).join("\n\n---\n\n");
+                                .filter(Boolean).join("\\n\\n---\\n\\n");
       document.getElementById("mig-viewer").innerHTML =
         '<div class="spec-content">' + renderMd(partial) + '</div>';
     }
