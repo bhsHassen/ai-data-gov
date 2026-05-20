@@ -171,6 +171,33 @@ R7. CONTRÔLES ET VALIDATIONS
 R8. LANGUE FRANÇAISE
     Toute la réponse est en français. Les noms de champs COBOL restent en majuscules.
 
+R9. TRADUCTION POUR PUBLIC NON-COBOLIEN — OBLIGATOIRE
+    L'audience de la spec ne connaît PAS le COBOL. Toujours fournir :
+
+    9.1 Type équivalent SQL/moderne — convertir chaque PIC clause en type
+        de base de données relationnelle ou langage moderne :
+          PIC X(n)             → VARCHAR(n)       — chaîne de n caractères
+          PIC X                → CHAR(1)          — caractère unique
+          PIC 9(n)             → INTEGER          — entier sur n chiffres (BIGINT si n>9)
+          PIC 9(n)V9(m)        → DECIMAL(n+m, m)  — nombre décimal
+          PIC S9(n)            → INTEGER signé    — entier positif ou négatif
+          PIC S9(n)V9(m) COMP-3→ DECIMAL(n+m, m)  — décimal packé (stockage compact)
+          PIC 9(n) COMP        → INTEGER binaire  — entier binaire
+          PIC 9(8) (date)      → DATE             — si nom évoque date (DT-, DATE, JOUR…)
+          88-level             → ENUM             — domaine de valeurs énumérées
+
+    9.2 Vocabulaire métier — éviter le jargon COBOL dans la description.
+        Au lieu de "MOVE WS-MNT-HT TO MNT-TOTAL", écris :
+          "Le montant total reçoit la valeur du montant hors taxes."
+        Au lieu de "EVALUATE WHEN '01'", écris :
+          "Lorsque le code statut vaut '01' (selon le code)."
+        Conserver les noms COBOL en majuscules entre parenthèses pour traçabilité.
+
+    9.3 Rôle fonctionnel — la **Description** doit expliquer À QUOI SERT
+        le champ pour le métier (ex. "identifiant unique du client",
+        "montant TTC d'une facture", "code statut du dossier") — pas sa
+        nature COBOL.
+
 ═══════════════════════════════════════════════════════
 FORMAT DE RÉPONSE — DEUX VARIANTES EXCLUSIVES, JAMAIS LES DEUX
 ═══════════════════════════════════════════════════════
@@ -179,28 +206,34 @@ FORMAT DE RÉPONSE — DEUX VARIANTES EXCLUSIVES, JAMAIS LES DEUX
                une alimentation explicite dans le code :
 
 ### {field_name}
-**Nom technique** : {field_name}
-**Libellé métier**: <libellé du commentaire, sinon "(non trouvé)">
-**Type**          : <PIC clause exacte>
-**Description**   : <rôle fonctionnel en une phrase>
-**Alimentation**
-- Règle 1 : MOVE|COMPUTE|INITIALIZE|REDEFINES — Condition : Toujours|Si <condition verbatim> — <description> [ligne X]
+**Nom technique**     : {field_name}
+**Libellé métier**    : <libellé du commentaire, sinon "(non trouvé)">
+**Type COBOL**        : <PIC clause exacte, ex: PIC X(006)>
+**Type équivalent**   : <traduction SQL/moderne selon R9.1, ex: VARCHAR(6) — chaîne de 6 caractères>
+**Rôle métier**       : <à quoi sert ce champ pour le métier, en langage clair (R9.3)>
+
+**Alimentation** *(décrite en langage métier — R9.2)*
+- Règle 1 : MOVE|COMPUTE|INITIALIZE|REDEFINES — Condition : Toujours|Si <condition verbatim> — <description claire en langage métier, avec noms COBOL entre parenthèses> [ligne X]
 - Règle 2 : ... [ligne Y]
+
 **Contrôles**
-- <contrôle codé avec numéro de ligne>
+- <contrôle codé avec numéro de ligne, expliqué en langage métier>
 - Aucun contrôle détecté.
+
 **Remarques**
-- <information structurelle visible dans le code, sinon vide>
+- <information structurelle utile au lecteur non-cobolien, sinon vide>
 
 ──────────────────────────────────────────────────────
 ▶ VARIANTE B — utilise ce format SI ET SEULEMENT SI aucune alimentation
                n'est trouvée dans le code :
 
 ### {field_name}
-**Nom technique** : {field_name}
-**Libellé métier**: <libellé du commentaire, sinon "(non trouvé)">
-**Type**          : <PIC clause exacte>
-**Description**   : <rôle fonctionnel en une phrase>
+**Nom technique**     : {field_name}
+**Libellé métier**    : <libellé du commentaire, sinon "(non trouvé)">
+**Type COBOL**        : <PIC clause exacte>
+**Type équivalent**   : <traduction SQL/moderne selon R9.1>
+**Rôle métier**       : <à quoi sert ce champ pour le métier, en langage clair>
+
 **Alimentation**
 ⚠️ **Non trouvé dans le code source — aucune alimentation détectée.**
 ──────────────────────────────────────────────────────
